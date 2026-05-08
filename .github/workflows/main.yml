@@ -2,13 +2,12 @@ name: Build Pro App (Android & Windows)
 on: [push]
 
 jobs:
-  # --- חלק א: בנייה לאנדרואיד ---
+  # --- חלק א: אנדרואיד (נשאר כפי שהצליח) ---
   build-android:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Unzip and Move Files
         run: |
           unzip project.zip -d temp_folder
@@ -16,8 +15,7 @@ jobs:
           cp -R $ROOT_DIR/* .
           find temp_folder -name "icon.png" -exec cp {} . \;
           rm -rf temp_folder
-
-      - name: Create Pro Main.dart
+      - name: Create Main.dart
         run: |
           mkdir -p lib
           cat <<EOF > lib/main.dart
@@ -25,18 +23,14 @@ jobs:
           import 'package:flutter/material.dart';
           import 'package:webview_flutter/webview_flutter.dart';
           import 'package:permission_handler/permission_handler.dart';
-          import 'package:webview_flutter_android/webview_flutter_android.dart';
-
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
             runApp(const MaterialApp(debugShowCheckedModeBanner: false, home: WebViewPage()));
           }
-
           class WebViewPage extends StatefulWidget {
             const WebViewPage({super.key});
             @override State<WebViewPage> createState() => _WebViewPageState();
           }
-
           class _WebViewPageState extends State<WebViewPage> {
             late final WebViewController controller;
             @override
@@ -45,9 +39,6 @@ jobs:
               controller = WebViewController()
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
                 ..setBackgroundColor(const Color(0x00000000))
-                ..setNavigationDelegate(NavigationDelegate(onPageFinished: (url) async {
-                  if (Platform.isAndroid) { await [Permission.microphone, Permission.storage].request(); }
-                }))
                 ..loadFlutterAsset('assets/index.html');
             }
             @override
@@ -56,8 +47,7 @@ jobs:
             }
           }
           EOF
-
-      - name: Fix Pubspec (Android)
+      - name: Fix Pubspec
         run: |
           cat <<EOF > pubspec.yaml
           name: kids_browser
@@ -68,7 +58,7 @@ jobs:
             flutter:
               sdk: flutter
             webview_flutter: ^4.10.0
-            webview_flutter_android: ^4.12.0 # עודכן לגרסה שפותרת את השגיאה
+            webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
@@ -80,36 +70,30 @@ jobs:
             assets:
               - assets/
           EOF
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
-
       - name: Recreate Android Project
         run: |
           rm -rf android
           flutter create . --platforms android --org com.kids.browser
-          
       - name: Generate Icons
         run: flutter pub run flutter_launcher_icons || true
-
-      - name: Add Permissions and Hardware Acceleration
+      - name: Add Permissions
         run: |
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true"/' android/app/src/main/AndroidManifest.xml
-
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons --split-per-abi
-
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
         with:
           name: android-release
           path: build/app/outputs/flutter-apk/*.apk
 
-  # --- חלק ב: בנייה לווינדוס ---
+  # --- חלק ב: ווינדוס (מתוקן) ---
   build-windows:
     runs-on: windows-latest
     steps:
@@ -117,22 +101,33 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Unzip Project
-        run: Expand-Archive -Path project.zip -DestinationPath . -Force
+        shell: pwsh
+        run: Expand-Archive -Path project.zip -DestinationPath temp_zip -Force
 
-      - name: Move Assets (Windows)
+      - name: Move Files (Fixed Windows)
         shell: pwsh
         run: |
-          $root = Get-ChildItem -Recurse -Filter "assets" | Select-Object -First 1 -ExpandProperty DirectoryName
-          Copy-Item -Path "$root\*" -Destination "." -Recurse -Force
+          $assetsPath = Get-ChildItem -Path temp_zip -Recurse -Directory -Filter "assets" | Select-Object -First 1
+          if ($assetsPath) {
+              $src = $assetsPath.Parent.FullName
+              Copy-Item -Path "$src\*" -Destination "." -Recurse -Force
+          } else {
+              Write-Error "Could not find assets folder in ZIP"
+              exit 1
+          }
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
 
-      - name: Build Windows EXE
+      - name: Build Windows
+        shell: pwsh
         run: |
+          # יצירת פרויקט ווינדוס והוספת תמיכה ב-WebView
           flutter create . --platforms windows
+          # הוספת תלות בווינדוס ידנית ל-pubspec אם היא חסרה
+          flutter pub add webview_windows
           flutter build windows --release
 
       - name: Upload Windows App
