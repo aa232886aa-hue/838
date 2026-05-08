@@ -2,7 +2,7 @@ name: Build Pro App (Android & Windows)
 on: [push]
 
 jobs:
-  # אנדרואיד נשאר ללא שינוי כי הוא עובד מעולה
+  # --- חלק א: אנדרואיד (עובד) ---
   build-android:
     runs-on: ubuntu-latest
     steps:
@@ -39,6 +39,9 @@ jobs:
               controller = WebViewController()
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
                 ..setBackgroundColor(const Color(0x00000000))
+                ..setNavigationDelegate(NavigationDelegate(onPageFinished: (url) async {
+                  if (Platform.isAndroid) { await [Permission.microphone, Permission.storage].request(); }
+                }))
                 ..loadFlutterAsset('assets/index.html');
             }
             @override
@@ -81,10 +84,6 @@ jobs:
           flutter create . --platforms android --org com.kids.browser
       - name: Generate Icons
         run: flutter pub run flutter_launcher_icons || true
-      - name: Add Permissions
-        run: |
-          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
-          sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true"/' android/app/src/main/AndroidManifest.xml
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons --split-per-abi
       - name: Upload Android APK
@@ -93,36 +92,28 @@ jobs:
           name: android-release
           path: build/app/outputs/flutter-apk/*.apk
 
-  # ווינדוס - גרסה מתוקנת לבעיות קידוד
+  # --- חלק ב: ווינדוס (מתוקן) ---
   build-windows:
     runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Unzip Project
         shell: pwsh
         run: Expand-Archive -Path project.zip -DestinationPath temp_zip -Force
-
-      - name: Extract Assets Only
+      - name: Extract Assets
         shell: pwsh
         run: |
           $assetsPath = Get-ChildItem -Path temp_zip -Recurse -Directory -Filter "assets" | Select-Object -First 1
-          if ($assetsPath) {
-              Copy-Item -Path "$($assetsPath.FullName)" -Destination "." -Recurse -Force
-          }
-          # יצירת תיקיית lib ריקה כדי שפלאטר לא יתלונן
+          if ($assetsPath) { Copy-Item -Path "$($assetsPath.FullName)" -Destination "." -Recurse -Force }
           if (!(Test-Path lib)) { New-Item -ItemType Directory -Path lib }
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-
       - name: Create Clean Project and Build
         shell: pwsh
         run: |
-          # יצירת קובץ pubspec נקי לחלוטין בפורמט UTF8 בתוך השרת
           $pubContent = @"
           name: kids_browser
           version: 1.0.0+1
@@ -138,12 +129,10 @@ jobs:
               - assets/
           "@
           $pubContent | Out-File -FilePath pubspec.yaml -Encoding utf8
-          
-          # יצירת קובץ main.dart בסיסי לווינדוס
           $mainContent = @"
           import 'package:flutter/material.dart';
           import 'package:webview_windows/webview_windows.dart';
-          void main() => runApp(MaterialApp(home: Scaffold(body: WebviewPage())));
+          void main() => runApp(MaterialApp(debugShowCheckedModeBanner: false, home: Scaffold(body: WebviewPage())));
           class WebviewPage extends StatefulWidget { @override _WebviewPageState createState() => _WebviewPageState(); }
           class _WebviewPageState extends State<WebviewPage> {
             final _controller = WebviewController();
@@ -151,19 +140,20 @@ jobs:
             void initState() { super.initState(); initPlatformState(); }
             Future<void> initPlatformState() async {
               await _controller.initialize();
-              await _controller.loadUrl('https://google.com'); // נשנה את זה בהמשך לנתיב מקומי
+              await _controller.loadAsset('assets/index.html');
               if (!mounted) return;
               setState(() {});
             }
             @override
-            Widget build(BuildContext context) => WebviewWidget(_controller);
+            Widget build(BuildContext context) {
+              if (!_controller.value.isInitialized) return Center(child: CircularProgressIndicator());
+              return Webview(_controller);
+            }
           }
           "@
           $mainContent | Out-File -FilePath lib/main.dart -Encoding utf8
-
           flutter create . --platforms windows
           flutter build windows --release
-
       - name: Upload Windows App
         uses: actions/upload-artifact@v4
         with:
