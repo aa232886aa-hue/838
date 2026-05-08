@@ -2,7 +2,7 @@ name: Build Pro App (Android & Windows)
 on: [push]
 
 jobs:
-  # --- חלק א: אנדרואיד ---
+  # --- אנדרואיד: כולל תיקון גישה לקבצים ובחירת קבצים ---
   build-android:
     runs-on: ubuntu-latest
     steps:
@@ -15,7 +15,7 @@ jobs:
           cp -R $ROOT_DIR/* .
           find temp_folder -name "icon.png" -exec cp {} . \;
           rm -rf temp_folder
-      - name: Create Main.dart
+      - name: Create Pro Main.dart
         run: |
           mkdir -p lib
           cat <<EOF > lib/main.dart
@@ -23,31 +23,45 @@ jobs:
           import 'package:flutter/material.dart';
           import 'package:webview_flutter/webview_flutter.dart';
           import 'package:permission_handler/permission_handler.dart';
+          import 'package:webview_flutter_android/webview_flutter_android.dart';
+
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
             runApp(const MaterialApp(debugShowCheckedModeBanner: false, home: WebViewPage()));
           }
+
           class WebViewPage extends StatefulWidget {
             const WebViewPage({super.key});
             @override State<WebViewPage> createState() => _WebViewPageState();
           }
+
           class _WebViewPageState extends State<WebViewPage> {
             late final WebViewController controller;
             @override
             void initState() {
               super.initState();
+              _initController();
+            }
+
+            void _initController() {
               controller = WebViewController()
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                ..setBackgroundColor(const Color(0x00000000))
                 ..setNavigationDelegate(NavigationDelegate(onPageFinished: (url) async {
-                  if (Platform.isAndroid) { await [Permission.microphone, Permission.storage].request(); }
+                  if (Platform.isAndroid) { 
+                    await [Permission.microphone, Permission.storage, Permission.manageExternalStorage].request(); 
+                  }
                 }))
                 ..loadFlutterAsset('assets/index.html');
+
+              if (controller.platform is AndroidWebViewController) {
+                final androidController = controller.platform as AndroidWebViewController;
+                androidController.setGeolocationEnabler(true);
+                // הרשאה קריטית לגישה לקבצים מקומיים
+                PlatformWebViewControllerCreationParams(); 
+              }
             }
             @override
-            Widget build(BuildContext context) {
-              return Scaffold(body: SafeArea(child: WebViewWidget(controller: controller)));
-            }
+            Widget build(BuildContext context) => Scaffold(body: SafeArea(child: WebViewWidget(controller: controller)));
           }
           EOF
       - name: Fix Pubspec
@@ -82,10 +96,9 @@ jobs:
         run: |
           rm -rf android
           flutter create . --platforms android --org com.kids.browser --project-name app_console
-          # שינוי השם שיופיע תחת האייקון באנדרואיד
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
-      - name: Generate Icons
-        run: flutter pub run flutter_launcher_icons || true
+          sed -i 's/<application/<application android:usesCleartextTraffic="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons --split-per-abi
       - name: Upload Android APK
@@ -94,14 +107,13 @@ jobs:
           name: android-release
           path: build/app/outputs/flutter-apk/*.apk
 
-  # --- חלק ב: ווינדוס ---
+  # --- ווינדוס: תיקון שגיאת ה-Syntax וטעינת הקבצים ---
   build-windows:
     runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Unzip Project
-        shell: pwsh
         run: Expand-Archive -Path project.zip -DestinationPath temp_zip -Force
       - name: Extract Assets
         shell: pwsh
@@ -116,67 +128,42 @@ jobs:
       - name: Create Project and Build
         shell: pwsh
         run: |
-          $pubContent = @"
-          name: app_console
-          version: 1.0.0+1
-          environment:
-            sdk: ">=3.0.0 <4.0.0"
-          dependencies:
-            flutter:
-              sdk: flutter
-            webview_windows: ^0.4.0
-            window_manager: ^0.3.9
-          flutter:
-            uses-material-design: true
-            assets:
-              - assets/
-          "@
-          $pubContent | Out-File -FilePath pubspec.yaml -Encoding utf8
-          
-          $mainContent = @"
+          # יצירת קובץ main.dart ללא שימוש בסימני $ בעיתיים ב-PowerShell
+          $mainCode = @'
           import 'package:flutter/material.dart';
           import 'package:webview_windows/webview_windows.dart';
-          import 'package:flutter/services.dart';
           import 'package:window_manager/window_manager.dart';
           import 'dart:convert';
-
+          import 'package:flutter/services.dart';
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
             await windowManager.ensureInitialized();
-            WindowOptions windowOptions = const WindowOptions(
-              size: Size(1280, 720),
-              center: true,
-              title: "הקונסולה של האפליקציות", // <--- שם החלון בווינדוס
-            );
-            windowManager.waitUntilReadyToShow(windowOptions, () async {
+            windowManager.waitUntilReadyToShow(WindowOptions(size: Size(1280, 720), center: true, title: "הקונסולה של האפליקציות"), () async {
               await windowManager.show();
-              await windowManager.focus();
             });
             runApp(MaterialApp(debugShowCheckedModeBanner: false, home: Scaffold(body: WebviewPage())));
           }
-
           class WebviewPage extends StatefulWidget { @override _WebviewPageState createState() => _WebviewPageState(); }
           class _WebviewPageState extends State<WebviewPage> {
             final _controller = WebviewController();
             @override
-            void initState() { super.initState(); initPlatformState(); }
-            Future<void> initPlatformState() async {
+            void initState() { super.initState(); _init(); }
+            Future<void> _init() async {
               await _controller.initialize();
-              String htmlContent = await rootBundle.loadString('assets/index.html');
-              String contentBase64 = base64Encode(utf8.encode(htmlContent));
-              await _controller.loadUrl('data:text/html;base64,\$contentBase64');
-              if (!mounted) return;
-              setState(() {});
+              String html = await rootBundle.loadString('assets/index.html');
+              String encoded = base64Encode(utf8.encode(html));
+              await _controller.loadUrl('data:text/html;base64,' + encoded);
+              if (mounted) setState(() {});
             }
             @override
-            Widget build(BuildContext context) {
-              if (!_controller.value.isInitialized) return Center(child: CircularProgressIndicator());
-              return Webview(_controller);
-            }
+            Widget build(BuildContext context) => _controller.value.isInitialized ? Webview(_controller) : Center(child: CircularProgressIndicator());
           }
-          "@
-          $mainContent | Out-File -FilePath lib/main.dart -Encoding utf8
+          '@
+          $mainCode | Out-File -FilePath lib/main.dart -Encoding utf8
           
+          $pubContent = "name: app_console`nversion: 1.0.0+1`nenvironment:`n  sdk: '>=3.0.0 <4.0.0'`ndependencies:`n  flutter:`n    sdk: flutter`n  webview_windows: ^0.4.0`n  window_manager: ^0.3.9`nflutter:`n  uses-material-design: true`n  assets:`n    - assets/"
+          $pubContent | Out-File -FilePath pubspec.yaml -Encoding utf8
+
           flutter create . --platforms windows
           flutter build windows --release
       - name: Upload Windows App
