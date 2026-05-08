@@ -2,7 +2,7 @@ name: Build Pro App (Android & Windows)
 on: [push]
 
 jobs:
-  # --- חלק א: אנדרואיד (הגרסה שעובדת מצוין) ---
+  # --- חלק א: אנדרואיד ---
   build-android:
     runs-on: ubuntu-latest
     steps:
@@ -53,7 +53,7 @@ jobs:
       - name: Fix Pubspec
         run: |
           cat <<EOF > pubspec.yaml
-          name: kids_browser
+          name: app_console
           version: 1.0.0+1
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -81,7 +81,9 @@ jobs:
       - name: Recreate Android Project
         run: |
           rm -rf android
-          flutter create . --platforms android --org com.kids.browser
+          flutter create . --platforms android --org com.kids.browser --project-name app_console
+          # שינוי השם שיופיע תחת האייקון באנדרואיד
+          sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
       - name: Generate Icons
         run: flutter pub run flutter_launcher_icons || true
       - name: Build APK
@@ -92,7 +94,7 @@ jobs:
           name: android-release
           path: build/app/outputs/flutter-apk/*.apk
 
-  # --- חלק ב: ווינדוס (מתוקן עם גודל חלון וטעינת קבצים) ---
+  # --- חלק ב: ווינדוס ---
   build-windows:
     runs-on: windows-latest
     steps:
@@ -115,7 +117,7 @@ jobs:
         shell: pwsh
         run: |
           $pubContent = @"
-          name: kids_browser
+          name: app_console
           version: 1.0.0+1
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -136,6 +138,7 @@ jobs:
           import 'package:webview_windows/webview_windows.dart';
           import 'package:flutter/services.dart';
           import 'package:window_manager/window_manager.dart';
+          import 'dart:convert';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -143,7 +146,7 @@ jobs:
             WindowOptions windowOptions = const WindowOptions(
               size: Size(1280, 720),
               center: true,
-              title: "Kids Browser",
+              title: "הקונסולה של האפליקציות", // <--- שם החלון בווינדוס
             );
             windowManager.waitUntilReadyToShow(windowOptions, () async {
               await windowManager.show();
@@ -160,7 +163,8 @@ jobs:
             Future<void> initPlatformState() async {
               await _controller.initialize();
               String htmlContent = await rootBundle.loadString('assets/index.html');
-              await _controller.loadString(htmlContent);
+              String contentBase64 = base64Encode(utf8.encode(htmlContent));
+              await _controller.loadUrl('data:text/html;base64,\$contentBase64');
               if (!mounted) return;
               setState(() {});
             }
