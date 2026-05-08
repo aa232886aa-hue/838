@@ -2,7 +2,7 @@ name: Build Pro App (Android & Windows)
 on: [push]
 
 jobs:
-  # --- חלק א: אנדרואיד (עובד) ---
+  # --- חלק א: אנדרואיד (הגרסה שעובדת מצוין) ---
   build-android:
     runs-on: ubuntu-latest
     steps:
@@ -92,7 +92,7 @@ jobs:
           name: android-release
           path: build/app/outputs/flutter-apk/*.apk
 
-  # --- חלק ב: ווינדוס (מתוקן) ---
+  # --- חלק ב: ווינדוס (מתוקן עם גודל חלון וטעינת קבצים) ---
   build-windows:
     runs-on: windows-latest
     steps:
@@ -111,7 +111,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-      - name: Create Clean Project and Build
+      - name: Create Project and Build
         shell: pwsh
         run: |
           $pubContent = @"
@@ -123,16 +123,35 @@ jobs:
             flutter:
               sdk: flutter
             webview_windows: ^0.4.0
+            window_manager: ^0.3.9
           flutter:
             uses-material-design: true
             assets:
               - assets/
           "@
           $pubContent | Out-File -FilePath pubspec.yaml -Encoding utf8
+          
           $mainContent = @"
           import 'package:flutter/material.dart';
           import 'package:webview_windows/webview_windows.dart';
-          void main() => runApp(MaterialApp(debugShowCheckedModeBanner: false, home: Scaffold(body: WebviewPage())));
+          import 'package:flutter/services.dart';
+          import 'package:window_manager/window_manager.dart';
+
+          void main() async {
+            WidgetsFlutterBinding.ensureInitialized();
+            await windowManager.ensureInitialized();
+            WindowOptions windowOptions = const WindowOptions(
+              size: Size(1280, 720),
+              center: true,
+              title: "Kids Browser",
+            );
+            windowManager.waitUntilReadyToShow(windowOptions, () async {
+              await windowManager.show();
+              await windowManager.focus();
+            });
+            runApp(MaterialApp(debugShowCheckedModeBanner: false, home: Scaffold(body: WebviewPage())));
+          }
+
           class WebviewPage extends StatefulWidget { @override _WebviewPageState createState() => _WebviewPageState(); }
           class _WebviewPageState extends State<WebviewPage> {
             final _controller = WebviewController();
@@ -140,7 +159,8 @@ jobs:
             void initState() { super.initState(); initPlatformState(); }
             Future<void> initPlatformState() async {
               await _controller.initialize();
-              await _controller.loadAsset('assets/index.html');
+              String htmlContent = await rootBundle.loadString('assets/index.html');
+              await _controller.loadString(htmlContent);
               if (!mounted) return;
               setState(() {});
             }
@@ -152,6 +172,7 @@ jobs:
           }
           "@
           $mainContent | Out-File -FilePath lib/main.dart -Encoding utf8
+          
           flutter create . --platforms windows
           flutter build windows --release
       - name: Upload Windows App
