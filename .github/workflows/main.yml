@@ -2,7 +2,7 @@ name: Build Pro App (Android & Windows)
 on: [push]
 
 jobs:
-  # --- אנדרואיד: כולל תיקון גישה לקבצים ובחירת קבצים ---
+  # --- אנדרואיד: תיקון פקודת המיקום והוספת מצלמה ---
   build-android:
     runs-on: ubuntu-latest
     steps:
@@ -48,16 +48,21 @@ jobs:
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
                 ..setNavigationDelegate(NavigationDelegate(onPageFinished: (url) async {
                   if (Platform.isAndroid) { 
-                    await [Permission.microphone, Permission.storage, Permission.manageExternalStorage].request(); 
+                    // בקשת הרשאות מורחבת כולל מצלמה
+                    await [
+                      Permission.microphone, 
+                      Permission.camera, 
+                      Permission.storage, 
+                      Permission.manageExternalStorage
+                    ].request(); 
                   }
                 }))
                 ..loadFlutterAsset('assets/index.html');
 
               if (controller.platform is AndroidWebViewController) {
                 final androidController = controller.platform as AndroidWebViewController;
-                androidController.setGeolocationEnabler(true);
-                // הרשאה קריטית לגישה לקבצים מקומיים
-                PlatformWebViewControllerCreationParams(); 
+                // תיקון הפקודה לגרסה החדשה
+                androidController.setGeolocationEnabled(true);
               }
             }
             @override
@@ -98,7 +103,7 @@ jobs:
           flutter create . --platforms android --org com.kids.browser --project-name app_console
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
-          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons --split-per-abi
       - name: Upload Android APK
@@ -107,7 +112,7 @@ jobs:
           name: android-release
           path: build/app/outputs/flutter-apk/*.apk
 
-  # --- ווינדוס: תיקון שגיאת ה-Syntax וטעינת הקבצים ---
+  # --- ווינדוס: נשאר כפי שהצליח ---
   build-windows:
     runs-on: windows-latest
     steps:
@@ -128,7 +133,6 @@ jobs:
       - name: Create Project and Build
         shell: pwsh
         run: |
-          # יצירת קובץ main.dart ללא שימוש בסימני $ בעיתיים ב-PowerShell
           $mainCode = @'
           import 'package:flutter/material.dart';
           import 'package:webview_windows/webview_windows.dart';
@@ -163,7 +167,6 @@ jobs:
           
           $pubContent = "name: app_console`nversion: 1.0.0+1`nenvironment:`n  sdk: '>=3.0.0 <4.0.0'`ndependencies:`n  flutter:`n    sdk: flutter`n  webview_windows: ^0.4.0`n  window_manager: ^0.3.9`nflutter:`n  uses-material-design: true`n  assets:`n    - assets/"
           $pubContent | Out-File -FilePath pubspec.yaml -Encoding utf8
-
           flutter create . --platforms windows
           flutter build windows --release
       - name: Upload Windows App
