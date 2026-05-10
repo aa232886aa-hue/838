@@ -2,7 +2,6 @@ name: Build Pro App (Android & Windows)
 on: [push]
 
 jobs:
-  # --- אנדרואיד: תיקון פקודת המיקום והוספת מצלמה ---
   build-android:
     runs-on: ubuntu-latest
     steps:
@@ -24,6 +23,7 @@ jobs:
           import 'package:webview_flutter/webview_flutter.dart';
           import 'package:permission_handler/permission_handler.dart';
           import 'package:webview_flutter_android/webview_flutter_android.dart';
+          import 'package:file_picker/file_picker.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -48,21 +48,26 @@ jobs:
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
                 ..setNavigationDelegate(NavigationDelegate(onPageFinished: (url) async {
                   if (Platform.isAndroid) { 
-                    // בקשת הרשאות מורחבת כולל מצלמה
-                    await [
-                      Permission.microphone, 
-                      Permission.camera, 
-                      Permission.storage, 
-                      Permission.manageExternalStorage
-                    ].request(); 
+                    await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
                   }
                 }))
                 ..loadFlutterAsset('assets/index.html');
 
               if (controller.platform is AndroidWebViewController) {
                 final androidController = controller.platform as AndroidWebViewController;
-                // תיקון הפקודה לגרסה החדשה
                 androidController.setGeolocationEnabled(true);
+                
+                // הוספת מנגנון בחירת קבצים (File Chooser)
+                androidController.setOnShowFileSelector((params) async {
+                  final result = await FilePicker.platform.pickFiles(
+                    type: FileType.any,
+                    allowMultiple: params.mode == FileSelectorMode.openMultiple,
+                  );
+                  if (result != null && result.files.single.path != null) {
+                    return [Uri.file(result.files.single.path!).toString()];
+                  }
+                  return [];
+                });
               }
             }
             @override
@@ -82,6 +87,7 @@ jobs:
             webview_flutter: ^4.10.0
             webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
+            file_picker: ^8.1.2 # נוסף בשביל בחירת קבצים
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
@@ -112,7 +118,7 @@ jobs:
           name: android-release
           path: build/app/outputs/flutter-apk/*.apk
 
-  # --- ווינדוס: נשאר כפי שהצליח ---
+  # ווינדוס - ללא שינוי (מיועד ל-64 ביט)
   build-windows:
     runs-on: windows-latest
     steps:
