@@ -1,4 +1,4 @@
-name: Build Pro App (Audio Performance Fix)
+name: Build Pro App (Audio & Performance Fixed)
 on: [push]
 
 jobs:
@@ -25,7 +25,6 @@ jobs:
           import 'package:webview_flutter/webview_flutter.dart';
           import 'package:permission_handler/permission_handler.dart';
           import 'package:webview_flutter_android/webview_flutter_android.dart';
-          import 'package:url_launcher/url_launcher.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -61,11 +60,10 @@ jobs:
 
               if (controller.platform is AndroidWebViewController) {
                 final androidController = controller.platform as AndroidWebViewController;
+                // הפעלת מיקום
                 androidController.setGeolocationEnabled(true);
-                // שיפור ביצועי סאונד - מוריד את השהיית האודיו
-                androidController.setMediaPlaybackConfig(const AndroidMediaPlaybackConfiguration(
-                  requiresUserGesture: false,
-                ));
+                // הגדרות מדיה לשיפור דיליי סאונד (גרסה מתוקנת)
+                androidController.setMediaPlaybackRequiresUserGesture(false);
               }
             }
 
@@ -87,7 +85,6 @@ jobs:
             webview_flutter: ^4.10.0
             webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
-            url_launcher: ^6.3.0
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
@@ -111,9 +108,9 @@ jobs:
         run: |
           rm -rf android
           flutter create . --platforms android --org com.music.app --project-name music_app
-          # הגדרות ביצועים קריטיות: האצת חומרה, זיכרון גדול ועדיפות סאונד
+          # הגדרות ביצועים במניפסט: זיכרון מוגדל והאצת חומרה
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true"/' android/app/src/main/AndroidManifest.xml
-          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
 
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons --split-per-abi
@@ -121,5 +118,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: music-app-fast
+          name: music-app-performance
           path: build/app/outputs/flutter-apk/*.apk
