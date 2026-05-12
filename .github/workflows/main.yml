@@ -1,4 +1,4 @@
-name: Build Pro App (Android & Windows)
+name: Build Pro App (Audio Performance Fix)
 on: [push]
 
 jobs:
@@ -7,6 +7,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Unzip and Move Files
         run: |
           unzip project.zip -d temp_folder
@@ -14,6 +15,7 @@ jobs:
           cp -R $ROOT_DIR/* .
           find temp_folder -name "icon.png" -exec cp {} . \;
           rm -rf temp_folder
+
       - name: Create Pro Main.dart
         run: |
           mkdir -p lib
@@ -23,7 +25,7 @@ jobs:
           import 'package:webview_flutter/webview_flutter.dart';
           import 'package:permission_handler/permission_handler.dart';
           import 'package:webview_flutter_android/webview_flutter_android.dart';
-          import 'package:file_picker/file_picker.dart';
+          import 'package:url_launcher/url_launcher.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -37,6 +39,7 @@ jobs:
 
           class _WebViewPageState extends State<WebViewPage> {
             late final WebViewController controller;
+
             @override
             void initState() {
               super.initState();
@@ -46,38 +49,35 @@ jobs:
             void _initController() {
               controller = WebViewController()
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                ..setNavigationDelegate(NavigationDelegate(onPageFinished: (url) async {
-                  if (Platform.isAndroid) { 
-                    await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
-                  }
-                }))
+                ..enableZoom(true)
+                ..setNavigationDelegate(NavigationDelegate(
+                  onPageFinished: (url) async {
+                    if (Platform.isAndroid) { 
+                      await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
+                    }
+                  },
+                ))
                 ..loadFlutterAsset('assets/index.html');
 
               if (controller.platform is AndroidWebViewController) {
                 final androidController = controller.platform as AndroidWebViewController;
                 androidController.setGeolocationEnabled(true);
-                
-                // הוספת מנגנון בחירת קבצים (File Chooser)
-                androidController.setOnShowFileSelector((params) async {
-                  final result = await FilePicker.platform.pickFiles(
-                    type: FileType.any,
-                    allowMultiple: params.mode == FileSelectorMode.openMultiple,
-                  );
-                  if (result != null && result.files.single.path != null) {
-                    return [Uri.file(result.files.single.path!).toString()];
-                  }
-                  return [];
-                });
+                // שיפור ביצועי סאונד - מוריד את השהיית האודיו
+                androidController.setMediaPlaybackConfig(const AndroidMediaPlaybackConfiguration(
+                  requiresUserGesture: false,
+                ));
               }
             }
+
             @override
             Widget build(BuildContext context) => Scaffold(body: SafeArea(child: WebViewWidget(controller: controller)));
           }
           EOF
+
       - name: Fix Pubspec
         run: |
           cat <<EOF > pubspec.yaml
-          name: app_console
+          name: music_app
           version: 1.0.0+1
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -87,96 +87,39 @@ jobs:
             webview_flutter: ^4.10.0
             webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
-            file_picker: ^8.1.2 # נוסף בשביל בחירת קבצים
+            url_launcher: ^6.3.0
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
             android: true
             image_path: "icon.png"
+            adaptive_icon_background: "#FFFFFF"
+            adaptive_icon_foreground: "icon.png"
           flutter:
             uses-material-design: true
             assets:
               - assets/
           EOF
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
+
       - name: Recreate Android Project
         run: |
           rm -rf android
-          flutter create . --platforms android --org com.kids.browser --project-name app_console
-          sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
-          sed -i 's/<application/<application android:usesCleartextTraffic="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
-          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
+          flutter create . --platforms android --org com.music.app --project-name music_app
+          # הגדרות ביצועים קריטיות: האצת חומרה, זיכרון גדול ועדיפות סאונד
+          sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true"/' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />' android/app/src/main/AndroidManifest.xml
+
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons --split-per-abi
-      - name: Upload Android APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-release
-          path: build/app/outputs/flutter-apk/*.apk
 
-  # ווינדוס - ללא שינוי (מיועד ל-64 ביט)
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Unzip Project
-        run: Expand-Archive -Path project.zip -DestinationPath temp_zip -Force
-      - name: Extract Assets
-        shell: pwsh
-        run: |
-          $assetsPath = Get-ChildItem -Path temp_zip -Recurse -Directory -Filter "assets" | Select-Object -First 1
-          if ($assetsPath) { Copy-Item -Path "$($assetsPath.FullName)" -Destination "." -Recurse -Force }
-          if (!(Test-Path lib)) { New-Item -ItemType Directory -Path lib }
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-      - name: Create Project and Build
-        shell: pwsh
-        run: |
-          $mainCode = @'
-          import 'package:flutter/material.dart';
-          import 'package:webview_windows/webview_windows.dart';
-          import 'package:window_manager/window_manager.dart';
-          import 'dart:convert';
-          import 'package:flutter/services.dart';
-          void main() async {
-            WidgetsFlutterBinding.ensureInitialized();
-            await windowManager.ensureInitialized();
-            windowManager.waitUntilReadyToShow(WindowOptions(size: Size(1280, 720), center: true, title: "הקונסולה של האפליקציות"), () async {
-              await windowManager.show();
-            });
-            runApp(MaterialApp(debugShowCheckedModeBanner: false, home: Scaffold(body: WebviewPage())));
-          }
-          class WebviewPage extends StatefulWidget { @override _WebviewPageState createState() => _WebviewPageState(); }
-          class _WebviewPageState extends State<WebviewPage> {
-            final _controller = WebviewController();
-            @override
-            void initState() { super.initState(); _init(); }
-            Future<void> _init() async {
-              await _controller.initialize();
-              String html = await rootBundle.loadString('assets/index.html');
-              String encoded = base64Encode(utf8.encode(html));
-              await _controller.loadUrl('data:text/html;base64,' + encoded);
-              if (mounted) setState(() {});
-            }
-            @override
-            Widget build(BuildContext context) => _controller.value.isInitialized ? Webview(_controller) : Center(child: CircularProgressIndicator());
-          }
-          '@
-          $mainCode | Out-File -FilePath lib/main.dart -Encoding utf8
-          
-          $pubContent = "name: app_console`nversion: 1.0.0+1`nenvironment:`n  sdk: '>=3.0.0 <4.0.0'`ndependencies:`n  flutter:`n    sdk: flutter`n  webview_windows: ^0.4.0`n  window_manager: ^0.3.9`nflutter:`n  uses-material-design: true`n  assets:`n    - assets/"
-          $pubContent | Out-File -FilePath pubspec.yaml -Encoding utf8
-          flutter create . --platforms windows
-          flutter build windows --release
-      - name: Upload Windows App
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: windows-release
-          path: build/windows/x64/runner/Release/
+          name: music-app-fast
+          path: build/app/outputs/flutter-apk/*.apk
