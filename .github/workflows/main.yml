@@ -1,4 +1,4 @@
-name: Build Pro App (Audio & Performance Fixed)
+name: Build Pro App (Ultimate Performance & Speed)
 on: [push]
 
 jobs:
@@ -8,12 +8,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ⚡ קיצור זמן בנייה: שמירת חבילות Gradle בזיכרון מטמון
+      - name: Cache Gradle Packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
       - name: Unzip and Move Files
         run: |
           unzip project.zip -d temp_folder
           ROOT_DIR=$(find temp_folder -name "assets" -exec dirname {} \;)
           cp -R $ROOT_DIR/* .
-          find temp_folder -name "icon.png" -exec cp {} . \;
+          # תיקון קריטי: העתקת האייקון ישירות לשורש הפרויקט
+          cp temp_folder/icon.png . || find temp_folder -name "icon.png" -exec cp {} . \;
           rm -rf temp_folder
 
       - name: Create Pro Main.dart
@@ -25,6 +37,7 @@ jobs:
           import 'package:webview_flutter/webview_flutter.dart';
           import 'package:permission_handler/permission_handler.dart';
           import 'package:webview_flutter_android/webview_flutter_android.dart';
+          import 'package:file_picker/file_picker.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -60,10 +73,20 @@ jobs:
 
               if (controller.platform is AndroidWebViewController) {
                 final androidController = controller.platform as AndroidWebViewController;
-                // הפעלת מיקום
                 androidController.setGeolocationEnabled(true);
-                // הגדרות מדיה לשיפור דיליי סאונד (גרסה מתוקנת)
                 androidController.setMediaPlaybackRequiresUserGesture(false);
+                
+                // 📂 החזרת מנגנון בחירת קבצים ותמונות שעבד קודם!
+                androidController.setOnShowFileSelector((params) async {
+                  final result = await FilePicker.platform.pickFiles(
+                    type: FileType.any,
+                    allowMultiple: params.mode == FileSelectorMode.openMultiple,
+                  );
+                  if (result != null && result.files.single.path != null) {
+                    return [Uri.file(result.files.single.path!).toString()];
+                  }
+                  return [];
+                });
               }
             }
 
@@ -75,7 +98,7 @@ jobs:
       - name: Fix Pubspec
         run: |
           cat <<EOF > pubspec.yaml
-          name: music_app
+          name: app_console
           version: 1.0.0+1
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -85,6 +108,7 @@ jobs:
             webview_flutter: ^4.10.0
             webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
+            file_picker: ^8.1.2
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
@@ -107,10 +131,16 @@ jobs:
       - name: Recreate Android Project
         run: |
           rm -rf android
-          flutter create . --platforms android --org com.music.app --project-name music_app
-          # הגדרות ביצועים במניפסט: זיכרון מוגדל והאצת חומרה
-          sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true"/' android/app/src/main/AndroidManifest.xml
+          flutter create . --platforms android --org com.kids.browser --project-name app_console
+          sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
+          # פתיחת הרשאות קבצים, האצת גרפיקה וזיכרון מוגדל (Large Heap)
+          sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
+
+      - name: Clean and Generate Icons
+        run: |
+          flutter pub get
+          flutter pub run flutter_launcher_icons || true
 
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons --split-per-abi
@@ -118,5 +148,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: music-app-performance
+          name: console-app-ultimate
           path: build/app/outputs/flutter-apk/*.apk
