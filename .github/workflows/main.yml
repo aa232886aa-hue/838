@@ -1,4 +1,4 @@
-name: Build Pro App (Ultimate Performance & Speed)
+name: Build Pro App (Audio Export & Scroll Fixed)
 on: [push]
 
 jobs:
@@ -8,23 +8,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # ⚡ קיצור זמן בנייה: שמירת חבילות Gradle בזיכרון מטמון
-      - name: Cache Gradle Packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-
       - name: Unzip and Move Files
         run: |
           unzip project.zip -d temp_folder
           ROOT_DIR=$(find temp_folder -name "assets" -exec dirname {} \;)
           cp -R $ROOT_DIR/* .
-          # תיקון קריטי: העתקת האייקון ישירות לשורש הפרויקט
           cp temp_folder/icon.png . || find temp_folder -name "icon.png" -exec cp {} . \;
           rm -rf temp_folder
 
@@ -33,11 +21,13 @@ jobs:
           mkdir -p lib
           cat <<EOF > lib/main.dart
           import 'dart:io' show Platform;
+          import 'dart:convert';
           import 'package:flutter/material.dart';
           import 'package:webview_flutter/webview_flutter.dart';
           import 'package:permission_handler/permission_handler.dart';
           import 'package:webview_flutter_android/webview_flutter_android.dart';
           import 'package:file_picker/file_picker.dart';
+          import 'package:path_provider/path_provider.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -62,11 +52,53 @@ jobs:
               controller = WebViewController()
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
                 ..enableZoom(true)
+                // 📂 ערוץ תקשורת מיוחד שתופס Blob ומוריד את קובץ ההקלטה של האורגן למכשיר
+                ..addJavaScriptChannel(
+                  'BlobDownloader',
+                  onMessageReceived: (JavaScriptMessage message) async {
+                    try {
+                      final data = jsonDecode(message.message);
+                      final String base64Data = data['base64'];
+                      final String fileName = data['name'] ?? 'recording.wav';
+                      final bytes = base64Decode(base64Data);
+                      
+                      final directory = Directory('/storage/emulated/0/Download');
+                      if (!await directory.exists()) {
+                        await directory.create(recursive: true);
+                      }
+                      final file = File('\${directory.path}/\${fileName}');
+                      await file.writeAsBytes(bytes);
+                      
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('הקובץ נשמר בהצלחה בתיקיית ההורדות: \${fileName}')),
+                      );
+                    } catch (e) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('שגיאה בשמירת הקובץ')),
+                      );
+                    }
+                  },
+                )
                 ..setNavigationDelegate(NavigationDelegate(
                   onPageFinished: (url) async {
                     if (Platform.isAndroid) { 
                       await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
                     }
+                    // הזרקת סקריפט אוטומטי ל-HTML שתופס לחיצות הורדה ומעביר לאנדרואיד
+                    controller.runJavaScript('''
+                      window.URL.createObjectURL = (original => blob => {
+                        const url = original(blob);
+                        if(blob.type.includes('audio') || blob.type.includes('wav') || blob.type.includes('mp3')) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            const base64 = reader.result.split(',')[1];
+                            BlobDownloader.postMessage(JSON.stringify({base64: base64, name: 'organ_recording.wav'}));
+                          };
+                          reader.readAsDataURL(blob);
+                        }
+                        return url;
+                      })(window.URL.createObjectURL);
+                    ''');
                   },
                 ))
                 ..loadFlutterAsset('assets/index.html');
@@ -76,7 +108,7 @@ jobs:
                 androidController.setGeolocationEnabled(true);
                 androidController.setMediaPlaybackRequiresUserGesture(false);
                 
-                // 📂 החזרת מנגנון בחירת קבצים ותמונות שעבד קודם!
+                // מנגנון בחירת הקבצים
                 androidController.setOnShowFileSelector((params) async {
                   final result = await FilePicker.platform.pickFiles(
                     type: FileType.any,
@@ -98,7 +130,7 @@ jobs:
       - name: Fix Pubspec
         run: |
           cat <<EOF > pubspec.yaml
-          name: app_console
+          name: organ_app_pro
           version: 1.0.0+1
           environment:
             sdk: ">=3.0.0 <4.0.0"
@@ -109,6 +141,7 @@ jobs:
             webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
             file_picker: ^8.1.2
+            path_provider: ^2.1.3
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
@@ -131,9 +164,10 @@ jobs:
       - name: Recreate Android Project
         run: |
           rm -rf android
-          flutter create . --platforms android --org com.kids.browser --project-name app_console
-          sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
-          # פתיחת הרשאות קבצים, האצת גרפיקה וזיכרון מוגדל (Large Heap)
+          flutter create . --platforms android --org com.organ.pro --project-name organ_app_pro
+          sed -i 's/android:label="organ_app_pro"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
+          
+          # שיפור ביצועי סאונד, האצת חומרה חזקה, וזיכרון מקסימלי (Large Heap) במניפסט
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
 
@@ -148,5 +182,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: console-app-ultimate
+          name: organ-app-ultimate
           path: build/app/outputs/flutter-apk/*.apk
