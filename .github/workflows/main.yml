@@ -20,14 +20,13 @@ jobs:
         run: |
           mkdir -p lib
           cat <<EOF > lib/main.dart
-          import 'dart:io' show Platform;
+          import 'dart:io' show Platform, File, Directory; // עודכן: הוספת File ו-Directory
           import 'dart:convert';
           import 'package:flutter/material.dart';
           import 'package:webview_flutter/webview_flutter.dart';
           import 'package:permission_handler/permission_handler.dart';
           import 'package:webview_flutter_android/webview_flutter_android.dart';
           import 'package:file_picker/file_picker.dart';
-          import 'package:path_provider/path_provider.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -52,7 +51,6 @@ jobs:
               controller = WebViewController()
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
                 ..enableZoom(true)
-                // 📂 ערוץ תקשורת מיוחד שתופס Blob ומוריד את קובץ ההקלטה של האורגן למכשיר
                 ..addJavaScriptChannel(
                   'BlobDownloader',
                   onMessageReceived: (JavaScriptMessage message) async {
@@ -69,13 +67,17 @@ jobs:
                       final file = File('\${directory.path}/\${fileName}');
                       await file.writeAsBytes(bytes);
                       
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('הקובץ נשמר בהצלחה בתיקיית ההורדות: \${fileName}')),
-                      );
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('הקובץ נשמר בהצלחה בתיקיית ההורדות: \${fileName}')),
+                        );
+                      }
                     } catch (e) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('שגיאה בשמירת הקובץ')),
-                      );
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('שגיאה בשמירת הקובץ')),
+                        );
+                      }
                     }
                   },
                 )
@@ -84,7 +86,6 @@ jobs:
                     if (Platform.isAndroid) { 
                       await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
                     }
-                    // הזרקת סקריפט אוטומטי ל-HTML שתופס לחיצות הורדה ומעביר לאנדרואיד
                     controller.runJavaScript('''
                       window.URL.createObjectURL = (original => blob => {
                         const url = original(blob);
@@ -108,7 +109,6 @@ jobs:
                 androidController.setGeolocationEnabled(true);
                 androidController.setMediaPlaybackRequiresUserGesture(false);
                 
-                // מנגנון בחירת הקבצים
                 androidController.setOnShowFileSelector((params) async {
                   final result = await FilePicker.platform.pickFiles(
                     type: FileType.any,
@@ -141,7 +141,6 @@ jobs:
             webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
             file_picker: ^8.1.2
-            path_provider: ^2.1.3
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
@@ -167,7 +166,6 @@ jobs:
           flutter create . --platforms android --org com.organ.pro --project-name organ_app_pro
           sed -i 's/android:label="organ_app_pro"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
           
-          # שיפור ביצועי סאונד, האצת חומרה חזקה, וזיכרון מקסימלי (Large Heap) במניפסט
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
 
