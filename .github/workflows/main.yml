@@ -1,4 +1,4 @@
-name: Build Pro App (Ultimate Performance Fix)
+name: Build Pro App (Ultimate Stable Fix)
 on: [push]
 
 jobs:
@@ -23,8 +23,9 @@ jobs:
           import 'dart:io' show Platform, File, Directory;
           import 'dart:convert';
           import 'package:flutter/material.dart';
-          import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+          import 'package:webview_flutter/webview_flutter.dart';
           import 'package:permission_handler/permission_handler.dart';
+          import 'package:webview_flutter_android/webview_flutter_android.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -37,101 +38,99 @@ jobs:
           }
 
           class _WebViewPageState extends State<WebViewPage> {
-            InAppWebViewController? webViewController;
-            String htmlContent = "<h1>Loading...</h1>";
+            late final WebViewController controller;
 
             @override
             void initState() {
               super.initState();
-              _loadHtmlAsset();
+              _initController();
             }
 
-            // קריאת קובץ ה-HTML המקומי והכנתו לטעינה מאובטחת
-            void _loadHtmlAsset() async {
-              try {
-                String content = await DefaultAssetBundle.of(context).loadString('assets/index.html');
-                setState(() {
-                  htmlContent = content;
-                });
-              } catch (_) {}
+            void _initController() {
+              controller = WebViewController()
+                ..setJavaScriptMode(JavaScriptMode.unrestricted)
+                ..enableZoom(true) // מפעיל זום והקטנה/הגדלה עם האצבעות
+                ..addJavaScriptChannel(
+                  'BlobDownloader',
+                  onMessageReceived: (JavaScriptMessage message) async {
+                    try {
+                      final data = jsonDecode(message.message);
+                      final String base64Data = data['base64'];
+                      final String fileName = data['name'] ?? 'recording.wav';
+                      final bytes = base64Decode(base64Data);
+                      
+                      final directory = Directory('/storage/emulated/0/Download');
+                      if (!await directory.exists()) {
+                        await directory.create(recursive: true);
+                      }
+                      final file = File('\${directory.path}/\${fileName}');
+                      await file.writeAsBytes(bytes);
+                      
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('הקובץ נשמר בהצלחה בתיקיית ההורדות: \${fileName}')),
+                        );
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('שגיאה בשמירת הקובץ')),
+                        );
+                      }
+                    }
+                  },
+                )
+                ..setNavigationDelegate(NavigationDelegate(
+                  onPageFinished: (url) async {
+                    if (Platform.isAndroid) { 
+                      await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
+                    }
+                    // הזרקת קוד שמתרגם הורדות Blob ל-Base64 ומעביר לאנדרואיד
+                    controller.runJavaScript('''
+                      (function() {
+                        const originalCreateObjectURL = window.URL.createObjectURL;
+                        window.URL.createObjectURL = function(blob) {
+                          const url = originalCreateObjectURL(blob);
+                          if (blob && (blob.type.includes('audio') || blob.type.includes('octet-stream'))) {
+                            const reader = new FileReader();
+                            reader.onloadend = function() {
+                              const base64 = reader.result.split(',')[1];
+                              BlobDownloader.postMessage(JSON.stringify({base64: base64, name: 'organ_recording.wav'}));
+                            };
+                            reader.readAsDataURL(blob);
+                          }
+                          return url;
+                        };
+                      })();
+                    ''');
+                  },
+                ))
+                ..loadFlutterAsset('assets/index.html');
+
+              if (controller.platform is AndroidWebViewController) {
+                final androidController = controller.platform as AndroidWebViewController;
+                androidController.setGeolocationEnabled(true);
+                androidController.setMediaPlaybackRequiresUserGesture(false); // הפחתת דיליי סאונד
+              }
             }
 
             @override
-            Widget build(BuildContext context) {
-              return Scaffold(
-                body: SafeArea(
-                  child: InAppWebView(
-                    // טעינת הקוד כתוכן מקומי מאובטח (עוקף את חסימות file:// ומאפשר גלילה וזום)
-                    initialData: InAppWebViewInitialData(
-                      data: htmlContent,
-                      mimeType: "text/html",
-                      encoding: "utf8",
-                      baseUrl: WebUri("http://localhost:8080/"),
-                    ),
-                    initialSettings: InAppWebViewSettings(
-                      javaScriptEnabled: true,
-                      useWideViewPort: true, // תמיכה בגלילה אופקית רחבה של האורגן
-                      loadWithOverviewMode: true, // התאמת האתר למסך
-                      supportZoom: true, // הפעלת הגדלה והקטנה (זום בצביטה)
-                      builtInZoomControls: true,
-                      displayZoomControls: false,
-                      allowFileAccessFromFileURLs: true,
-                      allowUniversalAccessFromFileURLs: true,
-                      mediaPlaybackRequiresUserGesture: false, // שיפור משמעותי של הדיליי בסאונד
-                    ),
-                    onWebViewCreated: (controller) {
-                      webViewController = controller;
-                    },
-                    onLoadStop: (controller, url) async {
-                      if (Platform.isAndroid) {
-                        await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request();
-                      }
-                    },
-                    // 📂 מנגנון תפיסת קבצי ה-Blob של האורגן ושמירתם למכשיר
-                    onDownloadStartRequest: (controller, downloadStartRequest) async {
-                      try {
-                        final String url = downloadStartRequest.url.toString();
-                        final String fileName = downloadStartRequest.suggestedFilename ?? 'recording.wav';
-                        final directory = Directory('/storage/emulated/0/Download');
-                        
-                        if (!await directory.exists()) {
-                          await directory.create(recursive: true);
-                        }
-                        
-                        if (url.startsWith('data:')) {
-                          final encodedData = url.split(',')[1];
-                          final bytes = base64Decode(encodedData);
-                          final file = File('\${directory.path}/\${fileName}');
-                          await file.writeAsBytes(bytes);
-                          
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('הקובץ נשמר בתיקיית ההורדות: \${fileName}')),
-                          );
-                        }
-                      } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('שגיאה בשמירת קובץ ההקלטה')),
-                        );
-                      }
-                    },
-                  ),
-                ),
-              );
-            }
+            Widget build(BuildContext context) => Scaffold(body: SafeArea(child: WebViewWidget(controller: controller)));
           }
           EOF
 
       - name: Fix Pubspec
         run: |
           cat <<EOF > pubspec.yaml
-          name: organ_app_pro
+          name: app_console
           version: 1.0.0+1
           environment:
             sdk: ">=3.0.0 <4.0.0"
           dependencies:
             flutter:
               sdk: flutter
-            flutter_inappwebview: ^6.0.0 # שימוש בגרסה יציבה ומותאמת לראנר
+            webview_flutter: ^4.10.0
+            webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
@@ -155,20 +154,12 @@ jobs:
       - name: Recreate Android Project
         run: |
           rm -rf android
-          flutter create . --platforms android --org com.organ.pro --project-name organ_app_pro
+          flutter create . --platforms android --org com.kids.browser --project-name app_console
+          sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
           
-          # החלפת השם העברי
-          sed -i 's/android:label="organ_app_pro"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
-          
-          # פתיחת הגדרות זיכרון (Large Heap), האצת חומרה והרשאות קבצים
+          # האצת חומרה, זיכרון גדול (Large Heap) והגדרות חסינות דריסה
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
-
-      - name: Force Compatible Gradle Version
-        run: |
-          # 🛠️ הזרקת פקודה שמאלצת את מערכת הבנייה להתעלם משגיאת ה-Proguard הישנה
-          echo "android.defaults.buildfeatures.buildconfig=true" >> android/gradle.properties
-          sed -i 's/minSdkVersion .*/minSdkVersion 24/' android/app/build.gradle.kts || sed -i 's/minSdkVersion .*/minSdkVersion 24/' android/app/build.gradle
 
       - name: Clean and Generate Icons
         run: |
@@ -181,5 +172,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: organ-app-fixed-final
+          name: console-app-fixed
           path: build/app/outputs/flutter-apk/*.apk
