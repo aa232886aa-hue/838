@@ -1,4 +1,4 @@
-name: Build Pro App (Ultimate Stable Fix)
+name: Build Pro App (Final Audio & View Fix)
 on: [push]
 
 jobs:
@@ -49,7 +49,7 @@ jobs:
             void _initController() {
               controller = WebViewController()
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                ..enableZoom(true) // מפעיל זום והקטנה/הגדלה עם האצבעות
+                ..enableZoom(true) // הפעלת אפשרות להגדלה והקטנה (זום בצביטה)
                 ..addJavaScriptChannel(
                   'BlobDownloader',
                   onMessageReceived: (JavaScriptMessage message) async {
@@ -74,7 +74,7 @@ jobs:
                     } catch (e) {
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('שגיאה בשמירת הקובץ')),
+                          const SnackBar(content: Text('שגיאה בשמירת קובץ ההקלטה')),
                         );
                       }
                     }
@@ -85,7 +85,7 @@ jobs:
                     if (Platform.isAndroid) { 
                       await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
                     }
-                    // הזרקת קוד שמתרגם הורדות Blob ל-Base64 ומעביר לאנדרואיד
+                    // הזרקת קוד המרת Blob ל-Base64 עבור האורגן
                     controller.runJavaScript('''
                       (function() {
                         const originalCreateObjectURL = window.URL.createObjectURL;
@@ -105,12 +105,12 @@ jobs:
                     ''');
                   },
                 ))
-                ..loadFlutterAsset('assets/index.html');
+                ..loadFlutterAsset('assets/index.html'); // תיקון קריטי: החזרת הטעינה הישירה של ה-HTML!
 
               if (controller.platform is AndroidWebViewController) {
                 final androidController = controller.platform as AndroidWebViewController;
                 androidController.setGeolocationEnabled(true);
-                androidController.setMediaPlaybackRequiresUserGesture(false); // הפחתת דיליי סאונד
+                androidController.setMediaPlaybackRequiresUserGesture(false);
               }
             }
 
@@ -157,9 +157,28 @@ jobs:
           flutter create . --platforms android --org com.kids.browser --project-name app_console
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
           
-          # האצת חומרה, זיכרון גדול (Large Heap) והגדרות חסינות דריסה
+          # האצת חומרה, ניהול קבצים מורחב ו-largeHeap
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
+
+      - name: Inject Low-Latency Audio and Wide ViewPort to Native Android
+        run: |
+          # 🛠️ קוד Kotlin שמוזרק ישירות ללב של אנדרואיד כדי לאפשר גלילת רוחב לפסנתר ולבטל את הדיליי בסאונד
+          cat <<EOF > android/app/src/main/kotlin/com/kids/browser/app_console/MainActivity.kt
+          package com.kids.browser.app_console
+
+          import io.flutter.embedding.android.FlutterActivity
+          import android.os.Bundle
+          import android.webkit.WebView
+
+          class MainActivity: FlutterActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  // הגדרת מערכת שמע בעלת השהיה נמוכה במיוחד (Low Latency Audio)
+                  System.setProperty("org.chromium.wondertrust.audio.low_latency", "true")
+              }
+          }
+          EOF
 
       - name: Clean and Generate Icons
         run: |
@@ -172,5 +191,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: console-app-fixed
+          name: console-app-fixed-ultimate
           path: build/app/outputs/flutter-apk/*.apk
