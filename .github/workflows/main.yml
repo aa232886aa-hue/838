@@ -1,4 +1,4 @@
-name: Build Pro App (Fix Content & File Access)
+name: Build Pro App (Absolute File Access Fix)
 on: [push]
 
 jobs:
@@ -49,7 +49,7 @@ jobs:
             void _initController() {
               controller = WebViewController()
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                ..enableZoom(true) // מאפשר הגדלה והקטנה של האורגן עם האצבעות
+                ..enableZoom(true)
                 ..addJavaScriptChannel(
                   'BlobDownloader',
                   onMessageReceived: (JavaScriptMessage message) async {
@@ -85,7 +85,6 @@ jobs:
                     if (Platform.isAndroid) { 
                       await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
                     }
-                    // קוד קבוע שתופס Blob של הקלטות באורגן וממיר לשמירה באנדרואיד
                     controller.runJavaScript('''
                       (function() {
                         const originalCreateObjectURL = window.URL.createObjectURL;
@@ -107,11 +106,10 @@ jobs:
                 ))
                 ..loadFlutterAsset('assets/index.html');
 
-              // 🔓 פתיחת החסימה של אנדרואיד לטעינת קבצי HTML ותמונות חיצוניים בממשק הניהול!
               if (controller.platform is AndroidWebViewController) {
                 final androidController = controller.platform as AndroidWebViewController;
                 androidController.setGeolocationEnabled(true);
-                androidController.setMediaPlaybackRequiresUserGesture(false); // הורדת דיליי בסאונד
+                androidController.setMediaPlaybackRequiresUserGesture(false);
               }
             }
 
@@ -158,21 +156,53 @@ jobs:
           flutter create . --platforms android --org com.kids.browser --project-name app_console
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
           
-          # הגדרות מניפסט חיוניות לביטול חסימות קבצים, האצת חומרה וזיכרון מוגדל (Large Heap)
+          # האצת חומרה וגישה מורשת לקבצים במניפסט
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
 
-      - name: Inject Low-Latency Audio Configuration
+      - name: Inject Core Android WebSettings Fix
         run: |
-          # הזרקת הגדרות שמע מהירות בליבה של אנדרואיד למניעת הדיליי באורגן
+          # 🔓 הקסם האמיתי: הזרקת קוד קוטלין שמאלץ את ה-WebView של אנדרואיד לאפשר גישה אוניברסלית לקבצים ותמונות בממשק הניהול
           cat <<EOF > android/app/src/main/kotlin/com/kids/browser/app_console/MainActivity.kt
           package com.kids.browser.app_console
+
           import io.flutter.embedding.android.FlutterActivity
           import android.os.Bundle
+          import android.webkit.WebView
+          import android.view.ViewGroup
+          import android.view.ViewTreeObserver
+
           class MainActivity: FlutterActivity() {
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
                   System.setProperty("org.chromium.wondertrust.audio.low_latency", "true")
+                  
+                  // האזנה ליצירת ה-WebView וביטול חסימות ה-CORS לקבצים מקומיים
+                  window.decorView.rootView.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+                      override fun onGlobalLayout() {
+                          val webViews = findWebViews(window.decorView.rootView as ViewGroup)
+                          for (webView in webViews) {
+                              webView.settings.allowFileAccess = true
+                              webView.settings.allowContentAccess = true
+                              webView.settings.allowFileAccessFromFileURLs = true
+                              webView.settings.allowUniversalAccessFromFileURLs = true
+                              webView.settings.domStorageEnabled = true
+                          }
+                      }
+                  })
+              }
+
+              private fun findWebViews(viewGroup: ViewGroup): List<WebView> {
+                  val webViews = mutableListOf<WebView>()
+                  for (i in 0 until viewGroup.childCount) {
+                      val child = viewGroup.getChildAt(i)
+                      if (child is WebView) {
+                          webViews.add(child)
+                      } else if (child is ViewGroup) {
+                          webViews.addAll(findWebViews(child))
+                      }
+                  }
+                  return webViews
               }
           }
           EOF
@@ -188,5 +218,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: console-app-fixed
+          name: console-app-fixed-final
           path: build/app/outputs/flutter-apk/*.apk
