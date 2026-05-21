@@ -93,7 +93,7 @@ jobs:
             webview_flutter: ^4.10.0
             webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
-            file_picker: ^6.1.1
+            file_picker: ^8.1.2 # עודכן לגרסה מודרנית ללא קוד v1 מיושן
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
@@ -136,7 +136,8 @@ jobs:
           flutter pub run flutter_launcher_icons || true
 
       - name: Build APK
-        run: flutter build apk --release --no-tree-shake-icons --split-per-abi
+        # אילוץ ישיר של ה-SDK בזמן הפקודה כדי למנוע קריסות של תוספים חיצוניים
+        run: flutter build apk --release --no-tree-shake-icons --split-per-abi --compile-sdk 36
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
