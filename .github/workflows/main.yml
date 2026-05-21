@@ -1,4 +1,4 @@
-name: Build Pro App (Absolute File Access Fix)
+name: Build Pro App (File Access Working Version)
 on: [push]
 
 jobs:
@@ -26,6 +26,7 @@ jobs:
           import 'package:webview_flutter/webview_flutter.dart';
           import 'package:permission_handler/permission_handler.dart';
           import 'package:webview_flutter_android/webview_flutter_android.dart';
+          import 'package:file_picker/file_picker.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -39,7 +40,6 @@ jobs:
 
           class _WebViewPageState extends State<WebViewPage> {
             late final WebViewController controller;
-
             @override
             void initState() {
               super.initState();
@@ -50,58 +50,11 @@ jobs:
               controller = WebViewController()
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
                 ..enableZoom(true)
-                ..addJavaScriptChannel(
-                  'BlobDownloader',
-                  onMessageReceived: (JavaScriptMessage message) async {
-                    try {
-                      final data = jsonDecode(message.message);
-                      final String base64Data = data['base64'];
-                      final String fileName = data['name'] ?? 'recording.wav';
-                      final bytes = base64Decode(base64Data);
-                      
-                      final directory = Directory('/storage/emulated/0/Download');
-                      if (!await directory.exists()) {
-                        await directory.create(recursive: true);
-                      }
-                      final file = File('\${directory.path}/\${fileName}');
-                      await file.writeAsBytes(bytes);
-                      
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('הקובץ נשמר בהצלחה בתיקיית ההורדות: \${fileName}')),
-                        );
-                      }
-                    } catch (e) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('שגיאה בשמירת קובץ ההקלטה')),
-                        );
-                      }
-                    }
-                  },
-                )
                 ..setNavigationDelegate(NavigationDelegate(
                   onPageFinished: (url) async {
                     if (Platform.isAndroid) { 
                       await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
                     }
-                    controller.runJavaScript('''
-                      (function() {
-                        const originalCreateObjectURL = window.URL.createObjectURL;
-                        window.URL.createObjectURL = function(blob) {
-                          const url = originalCreateObjectURL(blob);
-                          if (blob && (blob.type.includes('audio') || blob.type.includes('octet-stream'))) {
-                            const reader = new FileReader();
-                            reader.onloadend = function() {
-                              const base64 = reader.result.split(',');
-                              BlobDownloader.postMessage(JSON.stringify({base64: base64, name: 'organ_recording.wav'}));
-                            };
-                            reader.readAsDataURL(blob);
-                          }
-                          return url;
-                        };
-                      })();
-                    ''');
                   },
                 ))
                 ..loadFlutterAsset('assets/index.html');
@@ -109,10 +62,20 @@ jobs:
               if (controller.platform is AndroidWebViewController) {
                 final androidController = controller.platform as AndroidWebViewController;
                 androidController.setGeolocationEnabled(true);
-                androidController.setMediaPlaybackRequiresUserGesture(false);
+                
+                // 📂 מנגנון ה-File Picker שהחזיר את הגלריה ובחירת הקבצים לעבודה!
+                androidController.setOnShowFileSelector((params) async {
+                  final result = await FilePicker.platform.pickFiles(
+                    type: FileType.any,
+                    allowMultiple: params.mode == FileSelectorMode.openMultiple,
+                  );
+                  if (result != null && result.files.single.path != null) {
+                    return [Uri.file(result.files.single.path!).toString()];
+                  }
+                  return [];
+                });
               }
             }
-
             @override
             Widget build(BuildContext context) => Scaffold(body: SafeArea(child: WebViewWidget(controller: controller)));
           }
@@ -131,6 +94,7 @@ jobs:
             webview_flutter: ^4.10.0
             webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
+            file_picker: ^8.1.2
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
@@ -156,56 +120,9 @@ jobs:
           flutter create . --platforms android --org com.kids.browser --project-name app_console
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
           
-          # האצת חומרה וגישה מורשת לקבצים במניפסט
+          # האצת חומרה, זיכרון גדול (Large Heap) והגדרות חסינות דריסה
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
-
-      - name: Inject Core Android WebSettings Fix
-        run: |
-          # 🔓 הקסם האמיתי: הזרקת קוד קוטלין שמאלץ את ה-WebView של אנדרואיד לאפשר גישה אוניברסלית לקבצים ותמונות בממשק הניהול
-          cat <<EOF > android/app/src/main/kotlin/com/kids/browser/app_console/MainActivity.kt
-          package com.kids.browser.app_console
-
-          import io.flutter.embedding.android.FlutterActivity
-          import android.os.Bundle
-          import android.webkit.WebView
-          import android.view.ViewGroup
-          import android.view.ViewTreeObserver
-
-          class MainActivity: FlutterActivity() {
-              override fun onCreate(savedInstanceState: Bundle?) {
-                  super.onCreate(savedInstanceState)
-                  System.setProperty("org.chromium.wondertrust.audio.low_latency", "true")
-                  
-                  // האזנה ליצירת ה-WebView וביטול חסימות ה-CORS לקבצים מקומיים
-                  window.decorView.rootView.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
-                      override fun onGlobalLayout() {
-                          val webViews = findWebViews(window.decorView.rootView as ViewGroup)
-                          for (webView in webViews) {
-                              webView.settings.allowFileAccess = true
-                              webView.settings.allowContentAccess = true
-                              webView.settings.allowFileAccessFromFileURLs = true
-                              webView.settings.allowUniversalAccessFromFileURLs = true
-                              webView.settings.domStorageEnabled = true
-                          }
-                      }
-                  })
-              }
-
-              private fun findWebViews(viewGroup: ViewGroup): List<WebView> {
-                  val webViews = mutableListOf<WebView>()
-                  for (i in 0 until viewGroup.childCount) {
-                      val child = viewGroup.getChildAt(i)
-                      if (child is WebView) {
-                          webViews.add(child)
-                      } else if (child is ViewGroup) {
-                          webViews.addAll(findWebViews(child))
-                      }
-                  }
-                  return webViews
-              }
-          }
-          EOF
 
       - name: Clean and Generate Icons
         run: |
@@ -218,5 +135,5 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: console-app-fixed-final
+          name: console-app-working-version
           path: build/app/outputs/flutter-apk/*.apk
