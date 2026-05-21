@@ -1,4 +1,4 @@
-name: Build Pro App (File Access Working Version)
+name: Build Pro App (File Access Guaranteed Version)
 on: [push]
 
 jobs:
@@ -38,6 +38,11 @@ jobs:
             @override State<WebViewPage> createState() => _WebViewPageState();
           }
 
+          class WebViewPage extends StatefulWidget {
+            const WebViewPage({super.key});
+            @override State<WebViewPage> createState() => _WebViewPageState();
+          }
+
           class _WebViewPageState extends State<WebViewPage> {
             late final WebViewController controller;
             @override
@@ -63,7 +68,6 @@ jobs:
                 final androidController = controller.platform as AndroidWebViewController;
                 androidController.setGeolocationEnabled(true);
                 
-                // 📂 מנגנון ה-File Picker שהחזיר את הגלריה ובחירת הקבצים לעבודה!
                 androidController.setOnShowFileSelector((params) async {
                   final result = await FilePicker.platform.pickFiles(
                     type: FileType.any,
@@ -94,7 +98,7 @@ jobs:
             webview_flutter: ^4.10.0
             webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
-            file_picker: ^8.1.2
+            file_picker: ^6.1.1
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
@@ -120,25 +124,19 @@ jobs:
           flutter create . --platforms android --org com.kids.browser --project-name app_console
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
           
-          # האצת חומרה, זיכרון גדול (Large Heap) והגדרות חסינות דריסה במניפסט
+          # הגדרות מניפסט חיוניות לביצועים, זיכרון גדול (Large Heap) והאצת חומרה
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
 
-      - name: Force Global compileSdk 36
+      - name: Force Android Compile SDK 36
         run: |
-          # ⚡ הקסם שיפתור את בעיית ה-file_picker אחת ולתמיד:
-          # אנו מזריקים פקודה לקובץ ה-build.gradle הראשי שמאלצת את כל תתי-הפרויקטים והתוספים לעבוד עם SDK 36
-          cat << 'EOF' >> android/build.gradle
-          subprojects {
-              afterEvaluate { project ->
-                  if (project.hasProperty("android")) {
-                      project.android {
-                          compileSdkVersion 36
-                      }
-                  }
-              }
-          }
-          EOF
+          # 🛠️ פקודה שמאתרת את קובץ ה-build.gradle ומחליפה ידנית את גרסת הקימפול ל-36 כדי לפתור את השגיאה של גוגל ללא תקלות
+          if [ -f android/app/build.gradle.kts ]; then
+            sed -i 's/compileSdk = .*/compileSdk = 36/' android/app/build.gradle.kts
+          elif [ -f android/app/build.gradle ]; then
+            sed -i 's/compileSdkVersion .*/compileSdkVersion 36/' android/app/build.gradle
+            sed -i 's/compileSdk .*/compileSdk 36/' android/app/build.gradle
+          fi
 
       - name: Clean and Generate Icons
         run: |
