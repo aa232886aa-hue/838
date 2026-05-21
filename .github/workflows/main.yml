@@ -1,4 +1,4 @@
-name: Build Pro App (File Access Guaranteed Version)
+name: Build Pro App
 on: [push]
 
 jobs:
@@ -118,8 +118,6 @@ jobs:
           rm -rf android
           flutter create . --platforms android --org com.kids.browser --project-name app_console
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
-          
-          # הגדרות מניפסט חיוניות לביצועים, זיכרון גדול והאצת חומרה
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
 
