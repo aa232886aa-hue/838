@@ -93,7 +93,7 @@ jobs:
             webview_flutter: ^4.10.0
             webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
-            file_picker: ^8.1.7 # מעבר לגרסה הרשמית והיציבה ביותר שפותרת את כל בעיות הקימפול
+            file_picker: ^8.1.7
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
@@ -120,6 +120,21 @@ jobs:
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
+
+      - name: Force Android Compile SDK 36 via Build Script
+        run: |
+          # ⚡ אילוץ גרסה מוחלט: אנו מזריקים הגדרה מרכזית לתוך ה-Gradle של אנדרואיד
+          # הגדרה זו דורסת את כל ברירות המחדל ומאלצת את הפרויקט ואת כל החבילות (כולל פייל פיקר) לקמפל עם SDK 36
+          cat << 'EOF' >> android/app/build.gradle
+          android {
+              compileSdkVersion 36
+          }
+          EOF
+          cat << 'EOF' >> android/app/build.gradle.kts
+          android {
+              compileSdk = 36
+          }
+          EOF
 
       - name: Clean and Generate Icons
         run: |
