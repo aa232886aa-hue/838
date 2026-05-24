@@ -93,7 +93,7 @@ jobs:
             webview_flutter: ^4.10.0
             webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
-            file_picker: ^7.0.0
+            file_picker: ^8.1.4
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
@@ -120,6 +120,28 @@ jobs:
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
+
+      - name: Force Android Compile SDK 36 Global
+        run: |
+          # אילוץ גרסת ה-SDK ברמת ה-Gradle המרכזי כדי לפתור את דרישת ה-AAR של גרסה 8
+          if [ -f android/app/build.gradle.kts ]; then
+            sed -i 's/compileSdk = .*/compileSdk = 36/' android/app/build.gradle.kts
+          elif [ -f android/app/build.gradle ]; then
+            sed -i 's/compileSdkVersion .*/compileSdkVersion 36/' android/app/build.gradle
+            sed -i 's/compileSdk .*/compileSdk 36/' android/app/build.gradle
+          fi
+          # הזרקת תיקון מפורש שדורס את תלויות החבילות החיצוניות ומאמץ אותן ל-SDK 36
+          cat << 'EOF' >> android/build.gradle
+          subprojects {
+              afterEvaluate { project ->
+                  if (project.hasProperty("android")) {
+                      project.android {
+                          compileSdkVersion 36
+                      }
+                  }
+              }
+          }
+          EOF
 
       - name: Clean and Generate Icons
         run: |
