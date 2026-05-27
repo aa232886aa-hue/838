@@ -19,7 +19,7 @@ jobs:
       - name: Create Pro Main.dart
         run: |
           mkdir -p lib
-          cat <<EOF > lib/main.dart
+          cat << 'EOF' > lib/main.dart
           import 'dart:io' show Platform, File, Directory;
           import 'dart:convert';
           import 'package:flutter/material.dart';
@@ -50,27 +50,24 @@ jobs:
             void _initController() {
               controller = WebViewController()
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                ..enableZoom(true) // מפעיל את הזום בצביטה עם שתי אצבעות
+                ..enableZoom(true)
                 ..addJavaScriptChannel(
                   'BlobDownloader',
                   onMessageReceived: (JavaScriptMessage message) async {
                     try {
-                      // מנגנון תפיסת קובץ ההקלטה ושמירתו בתיקיית ההורדות
                       final data = jsonDecode(message.message);
                       final String base64Data = data['base64'];
                       final String fileName = data['name'] ?? 'recording.wav';
                       final bytes = base64Decode(base64Data);
-                      
                       final directory = Directory('/storage/emulated/0/Download');
                       if (!await directory.exists()) {
                         await directory.create(recursive: true);
                       }
-                      final file = File('\${directory.path}/\${fileName}');
+                      final file = File('${directory.path}/${fileName}');
                       await file.writeAsBytes(bytes);
-                      
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('הקובץ נשמר בהצלחה בתיקיית ההורדות: \${fileName}')),
+                          SnackBar(content: Text('הקובץ נשמר בהצלחה: $fileName')),
                         );
                       }
                     } catch (e) {
@@ -87,7 +84,6 @@ jobs:
                     if (Platform.isAndroid) { 
                       await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
                     }
-                    // הזרקת קוד JavaScript שתופס לחיצות הורדה (Blob) באורגן וממיר אותן ל-Base64
                     controller.runJavaScript('''
                       (function() {
                         const originalCreateObjectURL = window.URL.createObjectURL;
@@ -107,15 +103,12 @@ jobs:
                     ''');
                   },
                 ))
-                ..loadFlutterAsset('assets/index.html'); // חזרה לטעינה הרשמית והיציבה שמציגה את התמונות!
+                ..loadFlutterAsset('assets/index.html');
 
               if (controller.platform is AndroidWebViewController) {
                 final androidController = controller.platform as AndroidWebViewController;
                 androidController.setGeolocationEnabled(true);
-                androidController.setMediaPlaybackRequiresUserGesture(false); // הפחתת הדיליי בסאונד
-                
-                // פתיחה ידנית של הרשאות צד שלישי המאפשרות העלאת תמונות וקבצי HTML חיצוניים יחד
-                PlatformWebViewControllerCreationParams();
+                androidController.setMediaPlaybackRequiresUserGesture(false);
               }
             }
             @override
@@ -150,13 +143,6 @@ jobs:
               - assets/
           EOF
 
-      - name: Setup Flutter
-        uses: subosito/ubuntu-latest # תיקון קל
-        with:
-          channel: 'stable'
-          cache: true
-        continue-on-error: true
-
       - name: Setup Flutter Tool
         uses: subosito/flutter-action@v2
         with:
@@ -168,14 +154,11 @@ jobs:
           rm -rf android
           flutter create . --platforms android --org com.kids.browser --project-name app_console
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
-          
-          # הגדרות מניפסט חיוניות: פתיחת גישת קבצים מורחבת (requestLegacyExternalStorage), זיכרון גדול והאצת חומרה
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
 
-      - name: Force Global compileSdk 36
+      - name: Force Android Compile SDK 36 Globally
         run: |
-          # אילוץ גרסה גלובלי שמנקה את הקובץ הראשי ומזריק את ההוראה לכל התלויות (פותר את שגיאת ה-file_picker)
           rm -f android/build.gradle
           cat << 'EOF' > android/build.gradle
           allprojects {
