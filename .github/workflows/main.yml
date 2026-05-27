@@ -1,4 +1,4 @@
-name: Build Pro App (Ultimate Feature Fix)
+name: Build Pro App
 on: [push]
 
 jobs:
@@ -23,8 +23,11 @@ jobs:
           import 'dart:io' show Platform, File, Directory;
           import 'dart:convert';
           import 'package:flutter/material.dart';
-          import 'package:flutter_inappwebview/flutter_inappwebview.dart'; // מעבר למנוע המתקדם ביותר
+          import 'package:webview_flutter/webview_flutter.dart';
           import 'package:permission_handler/permission_handler.dart';
+          import 'package:webview_flutter_android/webview_flutter_android.dart';
+          import 'package:file_picker/file_picker.dart';
+          import 'package:flutter/services.dart' show rootBundle;
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -37,71 +40,92 @@ jobs:
           }
 
           class _WebViewPageState extends State<WebViewPage> {
-            InAppWebViewController? webViewController;
+            late final WebViewController controller;
 
             @override
-            Widget build(BuildContext context) {
-              return Scaffold(
-                body: SafeArea(
-                  child: InAppWebView(
-                    // טעינה ישירה של ה-HTML הפנימי שלכם
-                    initialUrlRequest: URLRequest(url: WebUri("asset:///assets/index.html")),
-                    initialSettings: InAppWebViewSettings(
-                      javaScriptEnabled: true,
+            void initState() {
+              super.initState();
+              _initController();
+            }
+
+            void _initController() async {
+              controller = WebViewController()
+                ..setJavaScriptMode(JavaScriptMode.unrestricted)
+                ..enableZoom(true) // 1. מפעיל אפשרות להגדלה/הקטנה (זום בצביטה) של האורגן
+                ..addJavaScriptChannel(
+                  'BlobDownloader',
+                  onMessageReceived: (JavaScriptMessage message) async {
+                    try {
+                      // 2. פתרון שמירת קבצים: קוד שתופס את ההקלטה ושומר אותה במכשיר
+                      final data = jsonDecode(message.message);
+                      final String base64Data = data['base64'];
+                      final String fileName = data['name'] ?? 'recording.wav';
+                      final bytes = base64Decode(base64Data);
                       
-                      // 1. פתרון הגלילה והזום (מאלץ את ה-WebView לאפשר למקלדת האורגן לחרוג מהמסך ולהיגלל חופשי)
-                      useWideViewPort: true, 
-                      loadWithOverviewMode: true, 
-                      supportZoom: true, 
-                      builtInZoomControls: true,
-                      displayZoomControls: false,
-                      
-                      // 2. פתיחת חסימות האבטחה המקומיות (מאפשר העלאת קבצים ותמונות)
-                      allowFileAccessFromFileURLs: true,
-                      allowUniversalAccessFromFileURLs: true,
-                      
-                      // 3. שיפור דרמטי בדיליי האודיו (מפעיל את מערכת השמע באופן מיידי)
-                      mediaPlaybackRequiresUserGesture: false, 
-                    ),
-                    onWebViewCreated: (controller) {
-                      webViewController = controller;
-                    },
-                    onLoadStop: (controller, url) async {
-                      if (Platform.isAndroid) {
-                        await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request();
+                      final directory = Directory('/storage/emulated/0/Download');
+                      if (!await directory.exists()) {
+                        await directory.create(recursive: true);
                       }
-                    },
-                    // 📂 4. פתרון שמירת קבצי ההקלטה (Download Listener מובנה שתופס Blob/Data URLs של האורגן ושומר אותם)
-                    onDownloadStartRequest: (controller, downloadStartRequest) async {
-                      try {
-                        final String url = downloadStartRequest.url.toString();
-                        final String fileName = downloadStartRequest.suggestedFilename ?? 'organ_recording.wav';
-                        final directory = Directory('/storage/emulated/0/Download');
-                        
-                        if (!await directory.exists()) {
-                          await directory.create(recursive: true);
-                        }
-                        
-                        if (url.startsWith('data:')) {
-                          final encodedData = url.split(',');
-                          final bytes = base64Decode(encodedData[1]); // תיקון: לקיחת חלק הנתונים בלבד
-                          final file = File('\${directory.path}/\${fileName}');
-                          await file.writeAsBytes(bytes);
-                          
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('הקובץ נשמר בהצלחה בתיקיית ההורדות: \${fileName}')),
-                          );
-                        }
-                      } catch (e) {
+                      final file = File('\${directory.path}/\${fileName}');
+                      await file.writeAsBytes(bytes);
+                      
+                      if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('שגיאה בתהליך ייצוא הקובץ')),
+                          SnackBar(content: Text('הקובץ נשמר בהצלחה בתיקיית ההורדות: \${fileName}')),
                         );
                       }
-                    },
-                  ),
-                ),
-              );
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('שגיאה בשמירת קובץ ההקלטה')),
+                        );
+                      }
+                    }
+                  },
+                )
+                ..setNavigationDelegate(NavigationDelegate(
+                  onPageFinished: (url) async {
+                    if (Platform.isAndroid) { 
+                      await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
+                    }
+                    // הזרקת קוד JavaScript שתופס לחיצות הורדה (Blob) באורגן וממיר אותן ל-Base64
+                    controller.runJavaScript('''
+                      (function() {
+                        const originalCreateObjectURL = window.URL.createObjectURL;
+                        window.URL.createObjectURL = function(blob) {
+                          const url = originalCreateObjectURL(blob);
+                          if (blob && (blob.type.includes('audio') || blob.type.includes('octet-stream'))) {
+                            const reader = new FileReader();
+                            reader.onloadend = function() {
+                              const base64 = reader.result.split(',')[1];
+                              BlobDownloader.postMessage(JSON.stringify({base64: base64, name: 'organ_recording.wav'}));
+                            };
+                            reader.readAsDataURL(blob);
+                          }
+                          return url;
+                        };
+                      })();
+                    ''');
+                  },
+                ));
+
+              // 🔓 3. הקסם שמבטל חסימות: טעינת ה-HTML כטקסט פתוח (Data URI)
+              // זה גורם לאנדרואיד לחשוב שהאתר רץ ברשת ומבטל את כל חסימות הגלילה והאבטחה של ממשק הניהול
+              try {
+                String htmlContent = await rootBundle.loadString('assets/index.html');
+                String contentBase64 = base64Encode(utf8.encode(htmlContent));
+                await controller.loadRequest(Uri.parse('data:text/html;base64,\$contentBase64'));
+              } catch (_) {}
+
+              if (controller.platform is AndroidWebViewController) {
+                final androidController = controller.platform as AndroidWebViewController;
+                androidController.setGeolocationEnabled(true);
+                androidController.setMediaPlaybackRequiresUserGesture(false); // 4. אופטימיזציית מוזיקה: הפחתת דיליי בסאונד
+              }
             }
+
+            @override
+            Widget build(BuildContext context) => Scaffold(body: SafeArea(child: WebViewWidget(controller: controller)));
           }
           EOF
 
@@ -115,8 +139,10 @@ jobs:
           dependencies:
             flutter:
               sdk: flutter
-            flutter_inappwebview: ^6.1.5 # הגרסה היציבה והחזקה ביותר בשוק
+            webview_flutter: ^4.10.0
+            webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
+            file_picker: ^8.1.7
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
@@ -142,13 +168,12 @@ jobs:
           flutter create . --platforms android --org com.kids.browser --project-name app_console
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
           
-          # ⚡ אופטימיזציית מוזיקה: האצת חומרה מקסימלית, וזיכרון מורחב (largeHeap) כדי למנוע קטיעות בסאונד
+          # הגדרות ביצועים מוגברות: האצת חומרה וזיכרון מוגדל (largeHeap) למניעת עומס וקטיעות צלילים
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
 
       - name: Force Android Compile SDK 36 Globally
         run: |
-          # אילוץ גרסה נקי ותואם לחלוטין עבור מנוע ה-WebView המתקדם
           if [ -f android/app/build.gradle.kts ]; then
             sed -i 's/compileSdk = .*/compileSdk = 36/' android/app/build.gradle.kts
           elif [ -f android/app/build.gradle ]; then
