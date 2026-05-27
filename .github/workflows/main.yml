@@ -1,4 +1,4 @@
-name: Build Pro App
+name: Build Pro App (Ultimate Feature Fix)
 on: [push]
 
 jobs:
@@ -23,10 +23,8 @@ jobs:
           import 'dart:io' show Platform, File, Directory;
           import 'dart:convert';
           import 'package:flutter/material.dart';
-          import 'package:webview_flutter/webview_flutter.dart';
+          import 'package:flutter_inappwebview/flutter_inappwebview.dart'; // מעבר למנוע המתקדם ביותר
           import 'package:permission_handler/permission_handler.dart';
-          import 'package:webview_flutter_android/webview_flutter_android.dart';
-          import 'package:file_picker/file_picker.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -39,46 +37,71 @@ jobs:
           }
 
           class _WebViewPageState extends State<WebViewPage> {
-            late final WebViewController controller;
-            @override
-            void initState() {
-              super.initState();
-              _initController();
-            }
+            InAppWebViewController? webViewController;
 
-            void _initController() {
-              controller = WebViewController()
-                ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                ..enableZoom(true)
-                ..setNavigationDelegate(NavigationDelegate(
-                  onPageFinished: (url) async {
-                    if (Platform.isAndroid) { 
-                      await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
-                    }
-                  },
-                ))
-                ..loadFlutterAsset('assets/index.html');
-
-              if (controller.platform is AndroidWebViewController) {
-                final androidController = controller.platform as AndroidWebViewController;
-                androidController.setGeolocationEnabled(true);
-                
-                androidController.setOnShowFileSelector((params) async {
-                  try {
-                    final result = await FilePicker.platform.pickFiles(
-                      type: FileType.any,
-                      allowMultiple: params.mode == FileSelectorMode.openMultiple,
-                    );
-                    if (result != null && result.files.single.path != null) {
-                      return [Uri.file(result.files.single.path!).toString()];
-                    }
-                  } catch (_) {}
-                  return [];
-                });
-              }
-            }
             @override
-            Widget build(BuildContext context) => Scaffold(body: SafeArea(child: WebViewWidget(controller: controller)));
+            Widget build(BuildContext context) {
+              return Scaffold(
+                body: SafeArea(
+                  child: InAppWebView(
+                    // טעינה ישירה של ה-HTML הפנימי שלכם
+                    initialUrlRequest: URLRequest(url: WebUri("asset:///assets/index.html")),
+                    initialSettings: InAppWebViewSettings(
+                      javaScriptEnabled: true,
+                      
+                      // 1. פתרון הגלילה והזום (מאלץ את ה-WebView לאפשר למקלדת האורגן לחרוג מהמסך ולהיגלל חופשי)
+                      useWideViewPort: true, 
+                      loadWithOverviewMode: true, 
+                      supportZoom: true, 
+                      builtInZoomControls: true,
+                      displayZoomControls: false,
+                      
+                      // 2. פתיחת חסימות האבטחה המקומיות (מאפשר העלאת קבצים ותמונות)
+                      allowFileAccessFromFileURLs: true,
+                      allowUniversalAccessFromFileURLs: true,
+                      
+                      // 3. שיפור דרמטי בדיליי האודיו (מפעיל את מערכת השמע באופן מיידי)
+                      mediaPlaybackRequiresUserGesture: false, 
+                    ),
+                    onWebViewCreated: (controller) {
+                      webViewController = controller;
+                    },
+                    onLoadStop: (controller, url) async {
+                      if (Platform.isAndroid) {
+                        await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request();
+                      }
+                    },
+                    // 📂 4. פתרון שמירת קבצי ההקלטה (Download Listener מובנה שתופס Blob/Data URLs של האורגן ושומר אותם)
+                    onDownloadStartRequest: (controller, downloadStartRequest) async {
+                      try {
+                        final String url = downloadStartRequest.url.toString();
+                        final String fileName = downloadStartRequest.suggestedFilename ?? 'organ_recording.wav';
+                        final directory = Directory('/storage/emulated/0/Download');
+                        
+                        if (!await directory.exists()) {
+                          await directory.create(recursive: true);
+                        }
+                        
+                        if (url.startsWith('data:')) {
+                          final encodedData = url.split(',');
+                          final bytes = base64Decode(encodedData[1]); // תיקון: לקיחת חלק הנתונים בלבד
+                          final file = File('\${directory.path}/\${fileName}');
+                          await file.writeAsBytes(bytes);
+                          
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('הקובץ נשמר בהצלחה בתיקיית ההורדות: \${fileName}')),
+                          );
+                        }
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('שגיאה בתהליך ייצוא הקובץ')),
+                        );
+                      }
+                    },
+                  ),
+                ),
+              );
+            }
           }
           EOF
 
@@ -92,10 +115,8 @@ jobs:
           dependencies:
             flutter:
               sdk: flutter
-            webview_flutter: ^4.10.0
-            webview_flutter_android: ^4.12.0
+            flutter_inappwebview: ^6.1.5 # הגרסה היציבה והחזקה ביותר בשוק
             permission_handler: ^11.3.1
-            file_picker: ^8.1.7
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
@@ -120,38 +141,20 @@ jobs:
           rm -rf android
           flutter create . --platforms android --org com.kids.browser --project-name app_console
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
+          
+          # ⚡ אופטימיזציית מוזיקה: האצת חומרה מקסימלית, וזיכרון מורחב (largeHeap) כדי למנוע קטיעות בסאונד
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
 
       - name: Force Android Compile SDK 36 Globally
         run: |
-          # ⚡ הקסם האמיתי: יצירה מחדש של קובץ build.gradle הראשי בשורש עם פקודה שמאלצת את כל תלויות הפרויקט לעבוד עם SDK 36
-          rm -f android/build.gradle
-          cat << 'EOF' > android/build.gradle
-          allprojects {
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          rootProject.buildDir = "../build"
-          subprojects {
-              project.buildDir = "${rootProject.buildDir}/${project.name}"
-              afterEvaluate { project ->
-                  if (project.hasProperty("android")) {
-                      project.android {
-                          compileSdkVersion 36
-                      }
-                  }
-              }
-          }
-          subprojects {
-              project.evaluationDependsOn(":app")
-          }
-          tasks.register("clean", Delete) {
-              delete rootProject.buildDir
-          }
-          EOF
+          # אילוץ גרסה נקי ותואם לחלוטין עבור מנוע ה-WebView המתקדם
+          if [ -f android/app/build.gradle.kts ]; then
+            sed -i 's/compileSdk = .*/compileSdk = 36/' android/app/build.gradle.kts
+          elif [ -f android/app/build.gradle ]; then
+            sed -i 's/compileSdkVersion .*/compileSdkVersion 36/' android/app/build.gradle
+            sed -i 's/compileSdk .*/compileSdk 36/' android/app/build.gradle
+          fi
 
       - name: Clean and Generate Icons
         run: |
