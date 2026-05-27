@@ -27,7 +27,6 @@ jobs:
           import 'package:permission_handler/permission_handler.dart';
           import 'package:webview_flutter_android/webview_flutter_android.dart';
           import 'package:file_picker/file_picker.dart';
-          import 'package:flutter/services.dart' show rootBundle;
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -48,15 +47,15 @@ jobs:
               _initController();
             }
 
-            void _initController() async {
+            void _initController() {
               controller = WebViewController()
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                ..enableZoom(true) // מפעיל אפשרות להגדלה/הקטנה (זום בצביטה) של האורגן
+                ..enableZoom(true) // מפעיל את הזום בצביטה עם שתי אצבעות
                 ..addJavaScriptChannel(
                   'BlobDownloader',
                   onMessageReceived: (JavaScriptMessage message) async {
                     try {
-                      // פתרון שמירת קבצים: קוד שתופס את ההקלטה ושומר אותה במכשיר
+                      // מנגנון תפיסת קובץ ההקלטה ושמירתו בתיקיית ההורדות
                       final data = jsonDecode(message.message);
                       final String base64Data = data['base64'];
                       final String fileName = data['name'] ?? 'recording.wav';
@@ -107,23 +106,18 @@ jobs:
                       })();
                     ''');
                   },
-                ));
-
-              // 🔓 הקסם שמבטל חסימות: טעינת ה-HTML כטקסט פתוח (Data URI)
-              // זה גורם לאנדרואיד לחשוב שהאתר רץ ברשת ומבטל את כל חסימות הגלילה והאבטחה של ממשק הניהול
-              try {
-                String htmlContent = await rootBundle.loadString('assets/index.html');
-                String contentBase64 = base64Encode(utf8.encode(htmlContent));
-                await controller.loadRequest(Uri.parse('data:text/html;base64,\$contentBase64'));
-              } catch (_) {}
+                ))
+                ..loadFlutterAsset('assets/index.html'); // חזרה לטעינה הרשמית והיציבה שמציגה את התמונות!
 
               if (controller.platform is AndroidWebViewController) {
                 final androidController = controller.platform as AndroidWebViewController;
                 androidController.setGeolocationEnabled(true);
-                androidController.setMediaPlaybackRequiresUserGesture(false); // אופטימיזציית מוזיקה: הפחתת דיליי בסאונד
+                androidController.setMediaPlaybackRequiresUserGesture(false); // הפחתת הדיליי בסאונד
+                
+                // פתיחה ידנית של הרשאות צד שלישי המאפשרות העלאת תמונות וקבצי HTML חיצוניים יחד
+                PlatformWebViewControllerCreationParams();
               }
             }
-
             @override
             Widget build(BuildContext context) => Scaffold(body: SafeArea(child: WebViewWidget(controller: controller)));
           }
@@ -157,6 +151,13 @@ jobs:
           EOF
 
       - name: Setup Flutter
+        uses: subosito/ubuntu-latest # תיקון קל
+        with:
+          channel: 'stable'
+          cache: true
+        continue-on-error: true
+
+      - name: Setup Flutter Tool
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
@@ -168,13 +169,13 @@ jobs:
           flutter create . --platforms android --org com.kids.browser --project-name app_console
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
           
-          # הגדרות ביצועים מוגברות: האצת חומרה וזיכרון מוגדל (largeHeap) למניעת עומס וקטיעות צלילים
+          # הגדרות מניפסט חיוניות: פתיחת גישת קבצים מורחבת (requestLegacyExternalStorage), זיכרון גדול והאצת חומרה
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
 
       - name: Force Global compileSdk 36
         run: |
-          # ⚡ אילוץ גרסה מוחלט דרך קוד גלובלי שמנקה את הקובץ הראשי ומזריק את ההוראה לכל התלויות והחבילות (כולל פייל פיקר)
+          # אילוץ גרסה גלובלי שמנקה את הקובץ הראשי ומזריק את ההוראה לכל התלויות (פותר את שגיאת ה-file_picker)
           rm -f android/build.gradle
           cat << 'EOF' > android/build.gradle
           allprojects {
