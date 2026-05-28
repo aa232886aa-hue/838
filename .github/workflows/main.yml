@@ -27,6 +27,7 @@ jobs:
           import 'package:permission_handler/permission_handler.dart';
           import 'package:webview_flutter_android/webview_flutter_android.dart';
           import 'package:file_selector_android/file_selector_android.dart';
+          import 'package:file_selector_platform_interface/file_selector_platform_interface.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -51,12 +52,11 @@ jobs:
             void _initController() {
               controller = WebViewController()
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                ..enableZoom(true) // זום וגלילה חופשית עם שתי אצבעות לאורגן
+                ..enableZoom(true)
                 ..addJavaScriptChannel(
                   'BlobDownloader',
                   onMessageReceived: (JavaScriptMessage message) async {
                     try {
-                      // מנגנון תפיסת קובץ ההקלטה ושמירתו במכשיר
                       final data = jsonDecode(message.message);
                       final String base64Data = data['base64'];
                       final String fileName = data['name'] ?? 'recording.wav';
@@ -110,16 +110,17 @@ jobs:
               if (controller.platform is AndroidWebViewController) {
                 final androidController = controller.platform as AndroidWebViewController;
                 androidController.setGeolocationEnabled(true);
-                androidController.setMediaPlaybackRequiresUserGesture(false); // הפחתת הדיליי באודיו
+                androidController.setMediaPlaybackRequiresUserGesture(false);
                 
-                // מנגנון בחירת קבצים רשמי של פלאטר - תומך ב-HTML ותמונות יחד בממשק הניהול
                 androidController.setOnShowFileSelector((params) async {
                   try {
-                    final List<XFile> files = await _fileSelector.startFileSelection(
-                      FileSelectionOptions(allowMultiple: params.mode == FileSelectorMode.openMultiple),
-                    );
+                    final List<XFile> files = await _fileSelector.openFiles();
                     if (files.isNotEmpty) {
-                      return files.map((file) => Uri.file(file.path).toString()).toList();
+                      List<String> paths = [];
+                      for (var file in files) {
+                        paths.add(Uri.file(file.path).toString());
+                      }
+                      return paths;
                     }
                   } catch (_) {}
                   return [];
@@ -144,7 +145,8 @@ jobs:
             webview_flutter: ^4.10.0
             webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
-            file_selector_android: ^0.5.0+4 # חבילה רשמית חסינת שגיאות בנייה שעובדת עם HTML
+            file_selector_android: ^0.5.2+6
+            file_selector_platform_interface: ^2.6.2
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
