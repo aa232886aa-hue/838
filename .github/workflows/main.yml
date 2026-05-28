@@ -143,8 +143,6 @@ jobs:
             webview_flutter_android: ^4.12.0
             permission_handler: ^11.3.1
             file_picker: ^8.1.7
-          dependency_overrides:
-            flutter_plugin_android_lifecycle: ^2.0.24 # מאלץ תאימות רשמית ללא שגיאות AAR
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
@@ -171,6 +169,13 @@ jobs:
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
+
+      - name: Force Global Android Compile SDK 36 (Official Safe Method)
+        run: |
+          # ⚡ הזרקת משתני מערכת ישירות לתוך קובץ המאפיינים מבלי לגעת או לערוך שורות קוד קיימות
+          # זה מאלץ את פלאטר להשתמש ב-SDK 36 עבור כל התוספים והספריות בצורה רשמית ותקנית
+          echo "flutter.compileSdkVersion=36" >> android/local.properties
+          echo "flutter.targetSdkVersion=34" >> android/local.properties
 
       - name: Clean and Generate Icons
         run: |
