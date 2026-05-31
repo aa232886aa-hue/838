@@ -23,11 +23,8 @@ jobs:
           import 'dart:io' show Platform, File, Directory;
           import 'dart:convert';
           import 'package:flutter/material.dart';
-          import 'package:webview_flutter/webview_flutter.dart';
+          import 'package:flutter_inappwebview/flutter_inappwebview.dart'; // מנוע מתקדם חסין חסימות
           import 'package:permission_handler/permission_handler.dart';
-          import 'package:webview_flutter_android/webview_flutter_android.dart';
-          import 'package:file_selector_android/file_selector_android.dart';
-          import 'package:file_selector_platform_interface/file_selector_platform_interface.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -40,95 +37,70 @@ jobs:
           }
 
           class _WebViewPageState extends State<WebViewPage> {
-            late final WebViewController controller;
-            final FileSelectorAndroid _fileSelector = FileSelectorAndroid();
+            InAppWebViewController? webViewController;
 
             @override
-            void initState() {
-              super.initState();
-              _initController();
-            }
-
-            void _initController() {
-              controller = WebViewController()
-                ..setJavaScriptMode(JavaScriptMode.unrestricted)
-                ..enableZoom(true)
-                ..addJavaScriptChannel(
-                  'BlobDownloader',
-                  onMessageReceived: (JavaScriptMessage message) async {
-                    try {
-                      final data = jsonDecode(message.message);
-                      final String base64Data = data['base64'];
-                      final String fileName = data['name'] ?? 'recording.wav';
-                      final bytes = base64Decode(base64Data);
-                      final directory = Directory('/storage/emulated/0/Download');
-                      if (!await directory.exists()) {
-                        await directory.create(recursive: true);
+            Widget build(BuildContext context) {
+              return Scaffold(
+                body: SafeArea(
+                  child: InAppWebView(
+                    initialUrlRequest: URLRequest(url: WebUri("asset:///assets/index.html")),
+                    initialSettings: InAppWebViewSettings(
+                      javaScriptEnabled: true,
+                      
+                      // 1. פתרון הגלילה והזום: מאלץ את המסך לאפשר למקלדת האורגן לחרוג מהמסך ולהיגלל חופשי לרוחב
+                      useWideViewPort: true,
+                      loadWithOverviewMode: true,
+                      supportZoom: true,
+                      builtInZoomControls: true,
+                      displayZoomControls: false,
+                      
+                      // 2. פתיחת חסימות האבטחה המקומיות לטעינת קבצי HTML ותמונות בממשק הניהול
+                      allowFileAccessFromFileURLs: true,
+                      allowUniversalAccessFromFileURLs: true,
+                      
+                      // 3. אופטימיזציית מוזיקה: ביטול השהיית האודיו של אנדרואיד (סאונד מיידי ללא דיליי)
+                      mediaPlaybackRequiresUserGesture: false,
+                    ),
+                    onWebViewCreated: (controller) {
+                      webViewController = controller;
+                    },
+                    onLoadStop: (controller, url) async {
+                      if (Platform.isAndroid) {
+                        await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request();
                       }
-                      final file = File('${directory.path}/${fileName}');
-                      await file.writeAsBytes(bytes);
-                      if (mounted) {
+                    },
+                    // 📂 4. פתרון שמירת קבצים: מנגנון הורדה קשוח שתופס Blob/Data URLs של האורגן ושומר אותם
+                    onDownloadStartRequest: (controller, downloadStartRequest) async {
+                      try {
+                        final String url = downloadStartRequest.url.toString();
+                        final String fileName = downloadStartRequest.suggestedFilename ?? 'organ_recording.wav';
+                        final directory = Directory('/storage/emulated/0/Download');
+                        
+                        if (!await directory.exists()) {
+                          await directory.create(recursive: true);
+                        }
+                        
+                        if (url.startsWith('data:')) {
+                          final encodedData = url.split(',');
+                          final bytes = base64Decode(encodedData[1]); // לקיחת נתוני הקובץ בלבד
+                          final file = File('\${directory.path}/\${fileName}');
+                          await file.writeAsBytes(bytes);
+                          
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('הקובץ נשמר בהצלחה בתיקיית ההורדות: \${fileName}')),
+                          );
+                        }
+                      } catch (e) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('הקובץ נשמר בהצלחה: $fileName')),
+                          const SnackBar(content: Text('שגיאה בתהליך ייצוא הקובץ')),
                         );
                       }
-                    } catch (e) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('שגיאה בשמירת קובץ ההקלטה')),
-                        );
-                      }
-                    }
-                  },
-                )
-                ..setNavigationDelegate(NavigationDelegate(
-                  onPageFinished: (url) async {
-                    if (Platform.isAndroid) { 
-                      await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
-                    }
-                    controller.runJavaScript('''
-                      (function() {
-                        const originalCreateObjectURL = window.URL.createObjectURL;
-                        window.URL.createObjectURL = function(blob) {
-                          const url = originalCreateObjectURL(blob);
-                          if (blob && (blob.type.includes('audio') || blob.type.includes('octet-stream'))) {
-                            const reader = new FileReader();
-                            reader.onloadend = function() {
-                              const base64 = reader.result.split(',');
-                              BlobDownloader.postMessage(JSON.stringify({base64: base64, name: 'organ_recording.wav'}));
-                            };
-                            reader.readAsDataURL(blob);
-                          }
-                          return url;
-                        };
-                      })();
-                    ''');
-                  },
-                ))
-                ..loadFlutterAsset('assets/index.html');
-
-              if (controller.platform is AndroidWebViewController) {
-                final androidController = controller.platform as AndroidWebViewController;
-                androidController.setGeolocationEnabled(true);
-                androidController.setMediaPlaybackRequiresUserGesture(false);
-                
-                androidController.setOnShowFileSelector((params) async {
-                  try {
-                    final List<XFile> files = await _fileSelector.openFiles();
-                    if (files.isNotEmpty) {
-                      List<String> paths = [];
-                      for (var file in files) {
-                        paths.add(Uri.file(file.path).toString());
-                      }
-                      return paths;
-                    }
-                  } catch (_) {}
-                  return [];
-                });
-              }
+                    },
+                  ),
+                ),
+              );
             }
-            @override
-            Widget build(BuildContext context) => Scaffold(body: SafeArea(child: WebViewWidget(controller: controller)));
           }
           EOF
 
@@ -142,11 +114,8 @@ jobs:
           dependencies:
             flutter:
               sdk: flutter
-            webview_flutter: ^4.10.0
-            webview_flutter_android: ^4.12.0
+            flutter_inappwebview: ^6.1.5 # הגרסה החדישה והיציבה ביותר בשוק
             permission_handler: ^11.3.1
-            file_selector_android: ^0.5.2+6
-            file_selector_platform_interface: ^2.6.2
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
@@ -171,6 +140,8 @@ jobs:
           rm -rf android
           flutter create . --platforms android --org com.kids.browser --project-name app_console
           sed -i 's/android:label="app_console"/android:label="הקונסולה של האפליקציות"/' android/app/src/main/AndroidManifest.xml
+          
+          # ⚡ האצת חומרה וזיכרון מקסימלי (Large Heap) במניפסט כדי למנוע עומס ותקיעות באפליקציות מוזיקה
           sed -i 's/<application/<application android:usesCleartextTraffic="true" android:hardwareAccelerated="true" android:largeHeap="true" android:requestLegacyExternalStorage="true"/' android/app/src/main/AndroidManifest.xml
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.CAMERA"/>\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />\n    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />' android/app/src/main/AndroidManifest.xml
 
