@@ -112,12 +112,13 @@ jobs:
                 androidController.setGeolocationEnabled(true);
                 androidController.setMediaPlaybackRequiresUserGesture(false);
                 
-                // שיפור גלילה וזום מובנה ב-Dart - משחרר את מקלדת האורגן
-                final androidSettings = WebSettings(
-                  useWideViewPort: true,
-                  loadWithOverviewMode: true,
-                  textZoom: 100,
-                );
+                // ⚡ תיקון: שימוש ב-AndroidWebSettings הרשמי כדי לשחרר את גלילת רוחב הפסנתר והזום
+                androidController.getInAppWebViewController().then((androidWebView) {
+                  androidWebView.settings.setUseWideViewPort(true);
+                  androidWebView.settings.setLoadWithOverviewMode(true);
+                  androidWebView.settings.setBuiltInZoomControls(true);
+                  androidWebView.settings.setDisplayZoomControls(false);
+                });
                 
                 androidController.setOnShowFileSelector((params) async {
                   try {
