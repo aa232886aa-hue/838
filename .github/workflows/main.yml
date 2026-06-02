@@ -50,22 +50,13 @@ jobs:
             }
 
             void _initController() {
-              // הגדרת מנהל ה-Assets שיטען קבצים תחת כתובת רשת פנימית לעקיפת חסימות האבטחה
-              final AndroidWebViewWidgetCreationParams params = PlatformWebViewWidgetCreationParams(
-                androidAssetLoadingExtension: AndroidAssetLoadingExtension(
-                  baseUrl: 'http://localhost:8080/',
-                  assetPath: 'assets/',
-                ),
-              );
-
-              controller = WebViewController.fromPlatformCreationParams(params.controllerParams)
+              controller = WebViewController()
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
                 ..enableZoom(true)
                 ..addJavaScriptChannel(
                   'BlobDownloader',
                   onMessageReceived: (JavaScriptMessage message) async {
                     try {
-                      // פתרון ייצוא קבצים: תפיסת ההקלטה מה-HTML ושמירתה במכשיר כקובץ אודיו
                       final data = jsonDecode(message.message);
                       final String base64Data = data['base64'];
                       final String fileName = data['name'] ?? 'recording.wav';
@@ -96,35 +87,45 @@ jobs:
                       await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
                     }
                     
-                    // הזרקת קוד המרת Blob ל-Base64 לטובת שמירת הקלטות האורגן
                     controller.runJavaScript('''
                       (function() {
-                        const original = window.URL.createObjectURL;
-                        window.URL.createObjectURL = function(blob) {
-                          const url = original(blob);
-                          if (blob && (blob.type.includes('audio') || blob.type.includes('octet-stream'))) {
-                            const reader = new FileReader();
-                            reader.onloadend = function() {
-                              const base64 = reader.result.split(',');
-                              BlobDownloader.postMessage(JSON.stringify({base64: base64, name: 'organ_recording.wav'}));
-                            };
-                            reader.readAsDataURL(blob);
-                          }
-                          return url;
-                        };
+                        try {
+                          let meta = document.createElement('meta');
+                          meta.name = 'viewport';
+                          meta.content = 'width=1280, initial-scale=1.0, user-scalable=yes, minimum-scale=0.2, maximum-scale=5.0';
+                          document.getElementsByTagName('head')[0].appendChild(meta);
+                          document.body.style.overflow = 'auto';
+                          document.documentElement.style.overflow = 'auto';
+                        } catch(_) {}
+
+                        try {
+                          const original = window.URL.createObjectURL;
+                          window.URL.createObjectURL = function(blob) {
+                            const url = original(blob);
+                            if (blob && (blob.type.includes('audio') || blob.type.includes('octet-stream'))) {
+                              const reader = new FileReader();
+                              reader.onloadend = function() {
+                                const base64 = reader.result.split(',');
+                                if (window.BlobDownloader) {
+                                  BlobDownloader.postMessage(JSON.stringify({base64: base64[1], name: 'organ_recording.wav'}));
+                                }
+                              };
+                              reader.readAsDataURL(blob);
+                            }
+                            return url;
+                          };
+                        } catch(_) {}
                       })();
                     ''');
                   },
                 ))
-                ..loadRequest(Uri.parse('http://localhost:8080/index.html'));
+                ..loadFlutterAsset('assets/index.html');
 
               if (controller.platform is AndroidWebViewController) {
                 final androidController = controller.platform as AndroidWebViewController;
                 androidController.setGeolocationEnabled(true);
-                androidController.setMediaPlaybackRequiresUserGesture(false); // הפחתת הדיליי בסאונד
+                androidController.setMediaPlaybackRequiresUserGesture(false);
                 
-                // שימוש בהגדרות הליבה הרשמיות של אנדרואיד לפתיחת גלילת רוחב וזום של הפסנתר
-                final androidSettings = androidController.getInAppWebViewController();
                 androidController.setOnShowFileSelector((params) async {
                   try {
                     final List<XFile> files = await _fileSelector.openFiles();
@@ -156,7 +157,7 @@ jobs:
             flutter:
               sdk: flutter
             webview_flutter: ^4.10.0
-            webview_flutter_android: ^4.12.0
+            webview_flutter_android: ^4.12.1
             permission_handler: ^11.3.1
             file_selector_android: ^0.5.2+6
             file_selector_platform_interface: ^2.6.2
