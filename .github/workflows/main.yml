@@ -86,8 +86,21 @@ jobs:
                     if (Platform.isAndroid) { 
                       await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
                     }
+                    
                     controller.runJavaScript('''
                       (function() {
+                        try {
+                          let meta = document.createElement('meta');
+                          meta.name = 'viewport';
+                          meta.content = 'width=1280, initial-scale=1.0, user-scalable=yes, minimum-scale=0.2, maximum-scale=5.0';
+                          document.getElementsByTagName('head')[0].appendChild(meta);
+                        } catch(_) {}
+                        
+                        try {
+                          document.body.style.overflow = 'auto';
+                          document.documentElement.style.overflow = 'auto';
+                        } catch(_) {}
+
                         const original = window.URL.createObjectURL;
                         window.URL.createObjectURL = function(blob) {
                           const url = original(blob);
@@ -95,7 +108,7 @@ jobs:
                             const reader = new FileReader();
                             reader.onloadend = function() {
                               const base64 = reader.result.split(',');
-                              BlobDownloader.postMessage(JSON.stringify({base64: base64, name: 'organ_recording.wav'}));
+                              BlobDownloader.postMessage(JSON.stringify({base64: base64[1], name: 'organ_recording.wav'}));
                             };
                             reader.readAsDataURL(blob);
                           }
@@ -111,14 +124,6 @@ jobs:
                 final androidController = controller.platform as AndroidWebViewController;
                 androidController.setGeolocationEnabled(true);
                 androidController.setMediaPlaybackRequiresUserGesture(false);
-                
-                // ⚡ תיקון: שימוש ב-AndroidWebSettings הרשמי כדי לשחרר את גלילת רוחב הפסנתר והזום
-                androidController.getInAppWebViewController().then((androidWebView) {
-                  androidWebView.settings.setUseWideViewPort(true);
-                  androidWebView.settings.setLoadWithOverviewMode(true);
-                  androidWebView.settings.setBuiltInZoomControls(true);
-                  androidWebView.settings.setDisplayZoomControls(false);
-                });
                 
                 androidController.setOnShowFileSelector((params) async {
                   try {
