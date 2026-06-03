@@ -27,7 +27,6 @@ jobs:
           import 'package:permission_handler/permission_handler.dart';
           import 'package:webview_flutter_android/webview_flutter_android.dart';
           import 'package:file_selector_android/file_selector_android.dart';
-          import 'package:file_selector_platform_interface/file_selector_platform_interface.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -50,14 +49,7 @@ jobs:
             }
 
             void _initController() {
-              final AndroidWebViewWidgetCreationParams params = AndroidWebViewWidgetCreationParams(
-                assetLoader: AndroidWebViewAssetLoader(
-                  domain: 'appassets.androidplatform.net',
-                  httpAllowed: false,
-                ),
-              );
-
-              controller = WebViewController.fromPlatformCreationParams(params.controllerParams)
+              controller = WebViewController()
                 ..setJavaScriptMode(JavaScriptMode.unrestricted)
                 ..enableZoom(true)
                 ..addJavaScriptChannel(
@@ -87,10 +79,28 @@ jobs:
                     if (Platform.isAndroid) { 
                       await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
                     }
-                    controller.runJavaScript('try { let meta = document.createElement("meta"); meta.name = "viewport"; meta.content = "width=1280, initial-scale=1.0, user-scalable=yes, minimum-scale=0.2, maximum-scale=5.0"; document.getElementsByTagName("head")[0].appendChild(meta); document.body.style.overflow = "auto"; document.documentElement.style.overflow = "auto"; } catch(_) {}');
+                    controller.runJavaScript('''
+                      (function() {
+                        const original = window.URL.createObjectURL;
+                        window.URL.createObjectURL = function(blob) {
+                          const url = original(blob);
+                          if (blob && (blob.type.includes('audio') || blob.type.includes('octet-stream'))) {
+                            const reader = new FileReader();
+                            reader.onloadend = function() {
+                              const base64 = reader.result.split(',')[1];
+                              if(window.BlobDownloader) {
+                                BlobDownloader.postMessage(JSON.stringify({base64: base64, name: 'organ_recording.wav'}));
+                              }
+                            };
+                            reader.readAsDataURL(blob);
+                          }
+                          return url;
+                        };
+                      })();
+                    ''');
                   },
                 ))
-                ..loadRequest(Uri.parse('https://androidplatform.net'));
+                ..loadFlutterAsset('assets/index.html');
 
               if (controller.platform is AndroidWebViewController) {
                 final androidController = controller.platform as AndroidWebViewController;
@@ -131,7 +141,6 @@ jobs:
             webview_flutter_android: ^4.12.1
             permission_handler: ^11.3.1
             file_selector_android: ^0.5.2+6
-            file_selector_platform_interface: ^2.6.2
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
