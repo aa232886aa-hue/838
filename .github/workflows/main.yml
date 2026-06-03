@@ -27,7 +27,7 @@ jobs:
           import 'package:permission_handler/permission_handler.dart';
           import 'package:webview_flutter_android/webview_flutter_android.dart';
           import 'package:file_selector_android/file_selector_android.dart';
-          import 'package:file_selector_platform_interface/file_selector_platform_interface.dart'; // תיקון: ייבוא הממשק שמגדיר את XFile
+          import 'package:file_selector_platform_interface/file_selector_platform_interface.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -154,7 +154,7 @@ jobs:
             webview_flutter_android: ^4.12.1
             permission_handler: ^11.3.1
             file_selector_android: ^0.5.2+6
-            file_selector_platform_interface: ^2.6.2 // הבטחת הצירוף הרשמי של ממשק הטיפוסים
+            file_selector_platform_interface: ^2.6.2
           dev_dependencies:
             flutter_launcher_icons: ^0.13.1
           flutter_icons:
