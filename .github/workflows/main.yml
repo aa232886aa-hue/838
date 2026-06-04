@@ -27,7 +27,6 @@ jobs:
           import 'package:permission_handler/permission_handler.dart';
           import 'package:webview_flutter_android/webview_flutter_android.dart';
           import 'package:file_selector_android/file_selector_android.dart';
-          import 'package:file_selector_platform_interface/file_selector_platform_interface.dart';
 
           void main() async {
             WidgetsFlutterBinding.ensureInitialized();
@@ -69,8 +68,24 @@ jobs:
                       await file.writeAsBytes(bytes);
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('הקובץ נשמר בהצלחה בתיקיית ההורדות: $fileName')),
+                          SnackBar(content: Text('הקובץ נשמר בהצלחה: $fileName')),
                         );
+                      }
+                    } catch (_) {}
+                  },
+                )
+                ..addJavaScriptChannel(
+                  'AppNavigator',
+                  onMessageReceived: (JavaScriptMessage message) async {
+                    try {
+                      final String targetUrl = message.message;
+                      if (targetUrl.startsWith('file://') || targetUrl.startsWith('content://')) {
+                        await controller.loadRequest(Uri.parse(targetUrl));
+                      } else {
+                        final file = File(targetUrl);
+                        if (await file.exists()) {
+                          await controller.loadFile(targetUrl);
+                        }
                       }
                     } catch (_) {}
                   },
@@ -80,37 +95,6 @@ jobs:
                     if (Platform.isAndroid) { 
                       await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
                     }
-                    
-                    controller.runJavaScript('''
-                      (function() {
-                        try {
-                          let meta = document.createElement('meta');
-                          meta.name = 'viewport';
-                          meta.content = 'width=1280, initial-scale=1.0, user-scalable=yes, minimum-scale=0.2, maximum-scale=5.0';
-                          document.getElementsByTagName('head').appendChild(meta);
-                          document.body.style.overflow = 'auto';
-                          document.documentElement.style.overflow = 'auto';
-                        } catch(_) {}
-
-                        try {
-                          const original = window.URL.createObjectURL;
-                          window.URL.createObjectURL = function(blob) {
-                            const url = original(blob);
-                            if (blob && (blob.type.includes('audio') || blob.type.includes('octet-stream'))) {
-                              const reader = new FileReader();
-                              reader.onloadend = function() {
-                                const base64 = reader.result.split(',');
-                                if (window.BlobDownloader) {
-                                  BlobDownloader.postMessage(JSON.stringify({base64: base64, name: 'organ_recording.wav'}));
-                                }
-                              };
-                              reader.readAsDataURL(blob);
-                            }
-                            return url;
-                          };
-                        } catch(_) {}
-                      })();
-                    ''');
                   },
                 ))
                 ..loadFlutterAsset('assets/index.html');
@@ -135,8 +119,20 @@ jobs:
                 });
               }
             }
+
             @override
-            Widget build(BuildContext context) => Scaffold(body: SafeArea(child: WebViewWidget(controller: controller)));
+            Widget build(BuildContext context) {
+              return WillPopScope(
+                onWillPop: () async {
+                  if (await controller.canGoBack()) {
+                    await controller.goBack();
+                    return false;
+                  }
+                  return true;
+                },
+                child: Scaffold(body: SafeArea(child: WebViewWidget(controller: controller))),
+              );
+            }
           }
           EOF
 
