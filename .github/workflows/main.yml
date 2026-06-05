@@ -105,6 +105,9 @@ jobs:
                 androidController.setGeolocationEnabled(true);
                 androidController.setMediaPlaybackRequiresUserGesture(false);
                 
+                // ⚡ פתרון אילוץ החלון הראשי: מונע מאנדרואיד לפתוח חלונות משניים חסומים
+                androidController.setSupportMultipleWindows(false);
+                
                 androidController.setOnShowFileSelector((params) async {
                   try {
                     final List<XFile> files = await _fileSelector.openFiles();
