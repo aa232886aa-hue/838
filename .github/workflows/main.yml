@@ -69,24 +69,8 @@ jobs:
                       await file.writeAsBytes(bytes);
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('הקובץ נשמר בהצלחה: $fileName')),
+                          SnackBar(content: Text('הקובץ נשמר בהצלחה בתיקיית ההורדות: $fileName')),
                         );
-                      }
-                    } catch (_) {}
-                  },
-                )
-                ..addJavaScriptChannel(
-                  'AppNavigator',
-                  onMessageReceived: (JavaScriptMessage message) async {
-                    try {
-                      final String targetUrl = message.message;
-                      if (targetUrl.startsWith('file://') || targetUrl.startsWith('content://')) {
-                        await controller.loadRequest(Uri.parse(targetUrl));
-                      } else {
-                        final file = File(targetUrl);
-                        if (await file.exists()) {
-                          await controller.loadFile(targetUrl);
-                        }
                       }
                     } catch (_) {}
                   },
@@ -96,6 +80,7 @@ jobs:
                     if (Platform.isAndroid) { 
                       await [Permission.microphone, Permission.camera, Permission.storage, Permission.manageExternalStorage].request(); 
                     }
+                    controller.runJavaScript('function patch(w){try{let m=w.document.createElement("meta");m.name="viewport";m.content="width=1280,initial-scale=1.0,user-scalable=yes,minimum-scale=0.2,maximum-scale=5.0";w.document.getElementsByTagName("head")[0].appendChild(m);w.document.body.style.overflow="auto";w.document.documentElement.style.overflow="auto";}catch(_){}try{const orig=w.URL.createObjectURL;w.URL.createObjectURL=function(b){const u=orig(b);if(b&&(b.type.includes("audio")||b.type.includes("octet-stream"))){const r=new FileReader();r.onloadend=function(){const b64=r.result.split(",")[1];if(window.BlobDownloader){BlobDownloader.postMessage(JSON.stringify({base64:b64,name:"organ_recording.wav"}));}else if(parent&&parent.BlobDownloader){parent.BlobDownloader.postMessage(JSON.stringify({base64:b64,name:"organ_recording.wav"}));}};r.readAsDataURL(b);}return u;};}catch(_){}}patch(window);setInterval(function(){patch(window);if(window.frames){for(let i=0;i<window.frames.length;i++){try{patch(window.frames[i]);}catch(_){}}}},2000);');
                   },
                 ))
                 ..loadFlutterAsset('assets/index.html');
@@ -104,9 +89,6 @@ jobs:
                 final androidController = controller.platform as AndroidWebViewController;
                 androidController.setGeolocationEnabled(true);
                 androidController.setMediaPlaybackRequiresUserGesture(false);
-                
-                // ⚡ פתרון אילוץ החלון הראשי: מונע מאנדרואיד לפתוח חלונות משניים חסומים
-                androidController.setSupportMultipleWindows(false);
                 
                 androidController.setOnShowFileSelector((params) async {
                   try {
@@ -123,20 +105,8 @@ jobs:
                 });
               }
             }
-
             @override
-            Widget build(BuildContext context) {
-              return WillPopScope(
-                onWillPop: () async {
-                  if (await controller.canGoBack()) {
-                    await controller.goBack();
-                    return false;
-                  }
-                  return true;
-                },
-                child: Scaffold(body: SafeArea(child: WebViewWidget(controller: controller))),
-              );
-            }
+            Widget build(BuildContext context) => Scaffold(body: SafeArea(child: WebViewWidget(controller: controller)));
           }
           EOF
 
